@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
 export interface RadioOption<T extends string> {
   value: T;
   label: string;
@@ -26,19 +29,22 @@ export default function RadioGroup<T extends string>({
       </div>
       <div className="flex flex-wrap gap-1.5">
         {options.map((opt) => (
-          <button
+          <Button
             key={opt.value}
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => onChange(opt.value)}
             title={opt.description}
-            className={`px-2.5 py-1 text-[11px] rounded-sm transition-colors ${
+            className={cn(
+              "h-auto px-2.5 py-1 text-[11px] rounded-sm",
               value === opt.value
-                ? "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] ring-1 ring-[var(--color-accent-teal)]"
+                ? "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] ring-1 ring-[var(--color-accent-teal)] hover:bg-[var(--color-accent-teal-dim)] hover:text-[var(--color-accent-teal)]"
                 : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-elevated)] hover:text-[var(--color-text-secondary)]"
-            }`}
+            )}
           >
             {opt.label}
-          </button>
+          </Button>
         ))}
       </div>
     </div>

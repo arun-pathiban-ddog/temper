@@ -5,6 +5,9 @@ import type { PendingDecision, PolicyScopeMatrix } from "@/lib/types";
 import type { PolicyBuilderContext } from "./PolicyBuilder";
 import PolicyBuilder from "./PolicyBuilder";
 import { commonContext } from "@/lib/decision-grouping";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
 interface BatchApproveBarProps {
   selectedDecisions: PendingDecision[];
@@ -12,11 +15,7 @@ interface BatchApproveBarProps {
   onClear: () => void;
 }
 
-export default function BatchApproveBar({
-  selectedDecisions,
-  onApprove,
-  onClear,
-}: BatchApproveBarProps) {
+export default function BatchApproveBar({ selectedDecisions, onApprove, onClear }: BatchApproveBarProps) {
   const [showBuilder, setShowBuilder] = useState(false);
   const [approving, setApproving] = useState(false);
   const [result, setResult] = useState<{ succeeded: number; failed: number } | null>(null);
@@ -32,10 +31,7 @@ export default function BatchApproveBar({
         const res = await onApprove(ids, matrix);
         setResult(res);
         if (res.failed === 0) {
-          setTimeout(() => {
-            setShowBuilder(false);
-            setResult(null);
-          }, 1500);
+          setTimeout(() => { setShowBuilder(false); setResult(null); }, 1500);
         }
       } finally {
         setApproving(false);
@@ -49,12 +45,13 @@ export default function BatchApproveBar({
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-bg-primary)_95%,transparent)] backdrop-blur-md">
       <div className="max-w-5xl mx-auto px-6 py-3">
-        {/* Summary row */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-[var(--color-accent-teal)] animate-pulse" />
             <span className="text-sm text-[var(--color-text-primary)]">
-              <span className="font-mono font-semibold">{selectedDecisions.length}</span>{" "}
+              <Badge variant="outline" className="font-mono mr-1.5 bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent">
+                {selectedDecisions.length}
+              </Badge>
               {selectedDecisions.length === 1 ? "decision" : "decisions"} selected
             </span>
           </div>
@@ -64,33 +61,30 @@ export default function BatchApproveBar({
                 {result.succeeded} approved{result.failed > 0 ? `, ${result.failed} failed` : ""}
               </span>
             )}
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="outline"
               onClick={() => setShowBuilder(!showBuilder)}
-              className="px-3 py-1.5 text-xs bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] rounded hover:bg-[var(--color-accent-teal-dim)] transition-colors"
+              className="rounded-[2px] text-xs bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent hover:bg-[var(--color-accent-teal-dim)]"
             >
               {showBuilder ? "Hide" : "Approve Selected"}
-            </button>
-            <button
-              type="button"
-              onClick={onClear}
-              className="px-3 py-1.5 text-xs bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded hover:bg-[var(--color-border)] transition-colors"
-            >
+            </Button>
+            <Button size="sm" variant="secondary" onClick={onClear} className="rounded-[2px] text-xs">
               Clear
-            </button>
+            </Button>
           </div>
         </div>
 
-        {/* Expanded PolicyBuilder */}
         {showBuilder && (
-          <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+          <>
+            <Separator className="my-3 bg-[var(--color-border)]" />
             <PolicyBuilder
               context={ctx}
               onApprove={handleApprove}
               onCancel={() => setShowBuilder(false)}
               disabled={approving}
             />
-          </div>
+          </>
         )}
       </div>
     </div>

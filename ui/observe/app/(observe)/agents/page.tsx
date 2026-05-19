@@ -7,6 +7,17 @@ import { useSSERefresh } from "@/lib/hooks";
 import type { AgentsResponse } from "@/lib/types";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import StatCard from "@/components/StatCard";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 function rateBgClass(rate: number): string {
   if (rate >= 80) return "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]";
@@ -58,15 +69,17 @@ export default function AgentsPage() {
 
   if (agentsPoll.loading && !data) {
     return (
-      <div className="animate-pulse">
-        <div className="h-6 bg-[var(--color-border)] rounded w-36 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-64 mb-6" />
+      <div>
+        <Skeleton className="h-6 w-36 mb-1.5" />
+        <Skeleton className="h-3.5 w-64 mb-6" />
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="glass rounded-[2px] p-4">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="glass rounded-[2px] border-0 gap-0">
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 mb-2" />
+                <Skeleton className="h-8 w-10" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -86,10 +99,6 @@ export default function AgentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {lastUpdated && (
-            <span className="text-xs text-[var(--color-text-muted)]">
-            </span>
-          )}
         </div>
       </div>
 
@@ -117,75 +126,72 @@ export default function AgentsPage() {
 
       {/* Agent Table */}
       {data && data.agents.length > 0 ? (
-        <div className="glass rounded overflow-hidden">
-          <table className="w-full text-[13px]">
-            <thead className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
-              <tr className="border-b border-[var(--color-border)]">
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
+        <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+          <Table className="text-[13px]">
+            <TableHeader className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
+              <TableRow className="border-b border-[var(--color-border)] hover:bg-transparent">
+                <TableHead className="px-3.5 py-2.5 text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">
                   Agent ID
-                </th>
-                <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
+                </TableHead>
+                <TableHead className="px-3.5 py-2.5 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">
                   Total
-                </th>
-                <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
+                </TableHead>
+                <TableHead className="px-3.5 py-2.5 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">
                   Success
-                </th>
-                <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
+                </TableHead>
+                <TableHead className="px-3.5 py-2.5 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">
                   Errors
-                </th>
-                <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
+                </TableHead>
+                <TableHead className="px-3.5 py-2.5 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">
                   Denials
-                </th>
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
+                </TableHead>
+                <TableHead className="px-3.5 py-2.5 text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">
                   Rate
-                </th>
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
+                </TableHead>
+                <TableHead className="px-3.5 py-2.5 text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">
                   Entity Types
-                </th>
-                <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
+                </TableHead>
+                <TableHead className="px-3.5 py-2.5 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">
                   Last Active
-                </th>
-                <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+                </TableHead>
+                <TableHead className="px-3.5 py-2.5 h-auto" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {data.agents.map((agent, i) => {
                 const rate = Math.round(agent.success_rate * 100);
                 const lastActive = agent.last_active_at
                   ? new Date(agent.last_active_at).toLocaleString()
                   : "--";
                 return (
-                  <tr
+                  <TableRow
                     key={agent.agent_id}
                     onClick={() => router.push(`/agents/${encodeURIComponent(agent.agent_id)}`)}
-                    className={`border-b border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer ${i % 2 === 1 ? "bg-[var(--color-bg-elevated)]" : ""}`}
+                    className={`border-b border-[var(--color-border)] cursor-pointer ${i % 2 === 1 ? "bg-[var(--color-bg-elevated)]" : ""}`}
                   >
-                    <td className="px-3.5 py-2.5">
+                    <TableCell className="px-3.5 py-2.5">
                       <span className="font-mono text-[var(--color-text-primary)]">
                         {agent.agent_id}
                       </span>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-text-secondary)]">
+                    </TableCell>
+                    <TableCell className="px-3.5 py-2.5 text-right font-mono text-[var(--color-text-secondary)]">
                       {agent.total_actions}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-teal)]">
+                    </TableCell>
+                    <TableCell className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-teal)]">
                       {agent.success_count}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-pink)]">
+                    </TableCell>
+                    <TableCell className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-pink)]">
                       {agent.error_count}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-pink)]">
+                    </TableCell>
+                    <TableCell className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-pink)]">
                       {agent.denial_count}
-                    </td>
-                    <td className="px-3.5 py-2.5">
-                      <span
-                        className={`text-xs font-mono px-2 py-0.5 rounded-full ${rateBgClass(rate)}`}
-                      >
+                    </TableCell>
+                    <TableCell className="px-3.5 py-2.5">
+                      <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${rateBgClass(rate)}`}>
                         {rate}%
                       </span>
-                    </td>
-                    <td className="px-3.5 py-2.5">
+                    </TableCell>
+                    <TableCell className="px-3.5 py-2.5">
                       <div className="flex flex-wrap gap-1">
                         {agent.entity_types.map((et) => (
                           <span
@@ -196,34 +202,38 @@ export default function AgentsPage() {
                           </span>
                         ))}
                       </div>
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-text-muted)] text-[11px]">
+                    </TableCell>
+                    <TableCell className="px-3.5 py-2.5 text-right font-mono text-[var(--color-text-muted)] text-[11px]">
                       {lastActive}
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right">
-                      <button
+                    </TableCell>
+                    <TableCell className="px-3.5 py-2.5 text-right">
+                      <Button
                         type="button"
+                        variant="outline"
+                        size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
                           router.push(`/agents/${encodeURIComponent(agent.agent_id)}?tab=policies`);
                         }}
-                        className="text-[10px] px-2 py-1 bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] rounded-sm hover:bg-[var(--color-accent-teal-dim)] transition-colors"
+                        className="rounded-[2px] text-[10px] bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]"
                       >
                         Permissions
-                      </button>
-                    </td>
-                  </tr>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </Card>
       ) : (
-        <div className="glass rounded-[2px] p-6 text-center">
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            No agent activity recorded yet.
-          </p>
-        </div>
+        <Card className="glass rounded-[2px] border-0 gap-0">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              No agent activity recorded yet.
+            </p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

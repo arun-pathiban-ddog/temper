@@ -7,26 +7,31 @@ import type { SpecSummary, EntitySummary, AllVerificationStatus } from "@/lib/ty
 import SpecCard from "@/components/SpecCard";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Card, CardContent } from "@/components/ui/card";
 
 function DashboardSkeleton() {
   return (
-    <div className="animate-pulse">
-      <div className="h-6 bg-[var(--color-border)] rounded w-36 mb-1.5" />
-      <div className="h-3.5 bg-[var(--color-border)] rounded w-64 mb-6" />
+    <div>
+      <Skeleton className="h-6 w-36 mb-1.5" />
+      <Skeleton className="h-3.5 w-64 mb-6" />
 
       <div className="grid grid-cols-3 gap-3 mb-6">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="glass rounded-[2px] p-4">
-            <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-            <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-          </div>
+          <Card key={i} className="glass rounded-[2px] border-0 gap-0">
+            <CardContent className="p-4">
+              <Skeleton className="h-3 w-20 mb-2" />
+              <Skeleton className="h-8 w-10" />
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      <div className="h-4 bg-[var(--color-border)] rounded w-14 mb-3" />
+      <Skeleton className="h-4 w-14 mb-3" />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="bg-[var(--color-bg-surface)] rounded-[2px] p-4 h-44" />
+          <Skeleton key={i} className="rounded-[2px] h-44" />
         ))}
       </div>
     </div>
@@ -87,7 +92,8 @@ function DesignTimeProgress({ verificationStatus }: { verificationStatus: AllVer
   if (allDone && !showComplete) return null;
 
   return (
-    <div className="bg-[var(--color-bg-surface)] rounded-[2px] p-3.5 mb-5">
+    <Card className="rounded-[2px] border-[var(--color-border)] gap-0 mb-5">
+      <CardContent className="p-3.5">
       <div className="flex items-center justify-between mb-2.5">
         <div className="flex items-center gap-2">
           {allDone ? (
@@ -141,7 +147,8 @@ function DesignTimeProgress({ verificationStatus }: { verificationStatus: AllVer
           );
         })}
       </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -253,21 +260,17 @@ export default function Dashboard() {
         <div className="flex items-center gap-3">
           {/* Tenant selector */}
           {tenants.length > 0 && (
-            <select
-              value={tenantFilter}
-              onChange={(e) => setTenantFilter(e.target.value)}
-              className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] px-2 py-1.5 focus:outline-none"
-            >
-              <option value="all">All tenants</option>
-              {tenants.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          )}
-          {/* Last updated indicator */}
-          {lastUpdated && (
-            <span className="text-xs text-[var(--color-text-muted)]">
-            </span>
+            <Select value={tenantFilter} onValueChange={setTenantFilter}>
+              <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-36 h-7">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All tenants</SelectItem>
+                {tenants.map((t) => (
+                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
       </div>
@@ -279,27 +282,33 @@ export default function Dashboard() {
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="glass rounded-[2px] p-4">
-          <div className="text-xs text-[var(--color-text-muted)]">Loaded Specs</div>
-          <div className="text-4xl font-bold font-mono text-[var(--color-text-primary)] mt-0.5">
-            {filteredSpecs.length}
-          </div>
-        </div>
-        <div
-          className={`glass rounded-[2px] p-4 ${entityHighlight}`}
+        <Card className="glass rounded-[2px] border-0 gap-0">
+          <CardContent className="p-4">
+            <div className="text-xs text-[var(--color-text-muted)]">Loaded Specs</div>
+            <div className="text-4xl font-bold font-mono text-[var(--color-text-primary)] mt-0.5">
+              {filteredSpecs.length}
+            </div>
+          </CardContent>
+        </Card>
+        <Card
+          className={`glass rounded-[2px] border-0 gap-0 ${entityHighlight}`}
           onAnimationEnd={() => setEntityHighlight("")}
         >
-          <div className="text-xs text-[var(--color-text-muted)]">Hydrated Actors</div>
-          <div className="text-4xl font-bold font-mono text-[var(--color-text-primary)] mt-0.5">
-            {entities.length}
-          </div>
-        </div>
-        <div className="glass rounded-[2px] p-4">
-          <div className="text-xs text-[var(--color-text-muted)]">Entity Types</div>
-          <div className="text-4xl font-bold font-mono text-[var(--color-text-primary)] mt-0.5">
-            {Object.keys(entityCounts).length}
-          </div>
-        </div>
+          <CardContent className="p-4">
+            <div className="text-xs text-[var(--color-text-muted)]">Hydrated Actors</div>
+            <div className="text-4xl font-bold font-mono text-[var(--color-text-primary)] mt-0.5">
+              {entities.length}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="glass rounded-[2px] border-0 gap-0">
+          <CardContent className="p-4">
+            <div className="text-xs text-[var(--color-text-muted)]">Entity Types</div>
+            <div className="text-4xl font-bold font-mono text-[var(--color-text-primary)] mt-0.5">
+              {Object.keys(entityCounts).length}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Spec cards grouped by tenant */}

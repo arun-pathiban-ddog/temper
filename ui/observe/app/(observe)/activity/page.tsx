@@ -10,6 +10,20 @@ import StatCard from "@/components/StatCard";
 import StatusBadge from "@/components/StatusBadge";
 import EntityDetailPanel from "@/components/EntityDetailPanel";
 import { rateColor, rateBgColor } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export default function ActivityPage() {
   const [initialLoading, setInitialLoading] = useState(true);
@@ -160,15 +174,17 @@ export default function ActivityPage() {
 
   if (initialLoading) {
     return (
-      <div className="animate-pulse">
-        <div className="h-6 bg-[var(--color-border)] rounded w-36 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-64 mb-6" />
+      <div>
+        <Skeleton className="h-6 w-36 mb-1.5" />
+        <Skeleton className="h-3.5 w-64 mb-6" />
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="glass rounded-[2px] p-4">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="glass rounded-[2px] border-0 gap-0">
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 mb-2" />
+                <Skeleton className="h-8 w-10" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -199,16 +215,17 @@ export default function ActivityPage() {
             </div>
           )}
           {entityTypes.length > 0 && (
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-            >
-              <option value="all">All types</option>
-              {entityTypes.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+            <Select value={filterType} onValueChange={setFilterType}>
+              <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-36 h-7">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {entityTypes.map((t) => (
+                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
       </div>
@@ -234,44 +251,47 @@ export default function ActivityPage() {
               <h2 className="text-base font-semibold text-[var(--color-text-primary)] tracking-tight">Live Activity</h2>
               <span className="text-[10px] font-mono text-[var(--color-text-muted)]">{liveEvents.length}</span>
             </div>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setLiveEvents([])}
-              className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+              className="rounded-[2px] text-[11px] text-[var(--color-text-muted)]"
             >
               Clear
-            </button>
+            </Button>
           </div>
-          <div
-            ref={feedRef}
-            className="glass rounded overflow-hidden max-h-64 overflow-y-auto"
-          >
-            {liveEvents.map((event, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 px-3.5 py-2 border-b border-[var(--color-border)] last:border-b-0 animate-slide-in"
-              >
-                <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent-teal)] flex-shrink-0" />
-                <span className="font-mono text-[11px] text-[var(--color-text-secondary)] flex-shrink-0">
-                  {event.entity_type}
-                </span>
-                <span className="font-mono text-[11px] text-[var(--color-text-muted)] flex-shrink-0">
-                  {event.entity_id}
-                </span>
-                <span className="text-[11px] text-[var(--color-accent-teal)] font-mono flex-shrink-0">
-                  {event.action}
-                </span>
-                <span className="text-[var(--color-text-muted)] text-[11px]">&rarr;</span>
-                <span className="font-mono text-[11px] text-[var(--color-accent-teal)] flex-shrink-0">
-                  {event.status}
-                </span>
-                {event.tenant && event.tenant !== "default" && (
-                  <span className="text-[10px] text-[var(--color-text-muted)] font-mono ml-auto flex-shrink-0">
-                    {event.tenant}
-                  </span>
-                )}
+          <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+            <ScrollArea className="max-h-64">
+              <div ref={feedRef}>
+                {liveEvents.map((event, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 px-3.5 py-2 border-b border-[var(--color-border)] last:border-b-0 animate-slide-in"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent-teal)] flex-shrink-0" />
+                    <span className="font-mono text-[11px] text-[var(--color-text-secondary)] flex-shrink-0">
+                      {event.entity_type}
+                    </span>
+                    <span className="font-mono text-[11px] text-[var(--color-text-muted)] flex-shrink-0">
+                      {event.entity_id}
+                    </span>
+                    <span className="text-[11px] text-[var(--color-accent-teal)] font-mono flex-shrink-0">
+                      {event.action}
+                    </span>
+                    <span className="text-[var(--color-text-muted)] text-[11px]">&rarr;</span>
+                    <span className="font-mono text-[11px] text-[var(--color-accent-teal)] flex-shrink-0">
+                      {event.status}
+                    </span>
+                    {event.tenant && event.tenant !== "default" && (
+                      <span className="text-[10px] text-[var(--color-text-muted)] font-mono ml-auto flex-shrink-0">
+                        {event.tenant}
+                      </span>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </ScrollArea>
+          </Card>
         </div>
       )}
 
@@ -279,51 +299,53 @@ export default function ActivityPage() {
       {data && actionNames.length > 0 && (
         <div className="mb-6">
           <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-3 tracking-tight">Action Breakdown</h2>
-          <div className="glass rounded overflow-hidden max-h-80 overflow-y-auto">
-            <table className="w-full text-[13px]">
-              <thead className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
-                <tr className="border-b border-[var(--color-border)]">
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Action</th>
-                  <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Total</th>
-                  <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Success</th>
-                  <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Errors</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider w-32">Rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {actionNames.map((action, i) => {
-                  const breakdown = data.by_action[action];
-                  const actionRate = breakdown.total > 0
-                    ? Math.round((breakdown.success / breakdown.total) * 100)
-                    : 0;
-                  return (
-                    <tr
-                      key={action}
-                      className={`border-b border-[var(--color-border)] ${i % 2 === 1 ? "bg-[var(--color-bg-elevated)]" : ""}`}
-                    >
-                      <td className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{action}</td>
-                      <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-text-secondary)]">{breakdown.total}</td>
-                      <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-teal)]">{breakdown.success}</td>
-                      <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-pink)]">{breakdown.error}</td>
-                      <td className="px-3.5 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-[var(--color-bg-elevated)] rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${rateBgColor(actionRate)}`}
-                              style={{ width: `${actionRate}%` }}
-                            />
+          <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+            <ScrollArea className="max-h-80">
+              <Table className="text-[13px]">
+                <TableHeader className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
+                  <TableRow className="border-b border-[var(--color-border)] hover:bg-transparent">
+                    <TableHead className="px-3.5 py-2.5 text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">Action</TableHead>
+                    <TableHead className="px-3.5 py-2.5 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">Total</TableHead>
+                    <TableHead className="px-3.5 py-2.5 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">Success</TableHead>
+                    <TableHead className="px-3.5 py-2.5 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">Errors</TableHead>
+                    <TableHead className="px-3.5 py-2.5 text-[var(--color-text-muted)] text-xs uppercase tracking-wider w-32 h-auto">Rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {actionNames.map((action, i) => {
+                    const breakdown = data.by_action[action];
+                    const actionRate = breakdown.total > 0
+                      ? Math.round((breakdown.success / breakdown.total) * 100)
+                      : 0;
+                    return (
+                      <TableRow
+                        key={action}
+                        className={`border-b border-[var(--color-border)] ${i % 2 === 1 ? "bg-[var(--color-bg-elevated)]" : ""}`}
+                      >
+                        <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{action}</TableCell>
+                        <TableCell className="px-3.5 py-2.5 text-right font-mono text-[var(--color-text-secondary)]">{breakdown.total}</TableCell>
+                        <TableCell className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-teal)]">{breakdown.success}</TableCell>
+                        <TableCell className="px-3.5 py-2.5 text-right font-mono text-[var(--color-accent-pink)]">{breakdown.error}</TableCell>
+                        <TableCell className="px-3.5 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-[var(--color-bg-elevated)] rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${rateBgColor(actionRate)}`}
+                                style={{ width: `${actionRate}%` }}
+                              />
+                            </div>
+                            <span className={`text-[11px] font-mono ${rateColor(actionRate)}`}>
+                              {actionRate}%
+                            </span>
                           </div>
-                          <span className={`text-[11px] font-mono ${rateColor(actionRate)}`}>
-                            {actionRate}%
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </Card>
         </div>
       )}
 
@@ -336,93 +358,99 @@ export default function ActivityPage() {
               <span className="text-[var(--color-text-muted)] font-normal text-[13px] ml-2">{filteredEntities.length}</span>
             </h2>
             <div className="flex items-center gap-2">
-              <input
+              <Input
                 type="text"
                 placeholder="Search entities..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2.5 py-1.5 w-40 placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-teal)]"
+                className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-40 h-7 placeholder:text-[var(--color-text-muted)] focus:ring-1 focus:ring-[var(--color-accent-teal)]"
               />
               {allEntityTypes.length > 1 && (
-                <select
-                  value={entityTypeFilter}
-                  onChange={(e) => setEntityTypeFilter(e.target.value)}
-                  className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-                >
-                  <option value="all">All types</option>
-                  {allEntityTypes.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
+                <Select value={entityTypeFilter} onValueChange={setEntityTypeFilter}>
+                  <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-32 h-7">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All types</SelectItem>
+                    {allEntityTypes.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
               {allEntityStates.length > 1 && (
-                <select
-                  value={entityStateFilter}
-                  onChange={(e) => setEntityStateFilter(e.target.value)}
-                  className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-                >
-                  <option value="all">All states</option>
-                  {allEntityStates.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+                <Select value={entityStateFilter} onValueChange={setEntityStateFilter}>
+                  <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-32 h-7">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All states</SelectItem>
+                    {allEntityStates.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
               {(searchQuery || entityTypeFilter !== "all" || entityStateFilter !== "all") && (
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => { setSearchQuery(""); setEntityTypeFilter("all"); setEntityStateFilter("all"); }}
-                  className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+                  className="rounded-[2px] text-[11px] text-[var(--color-text-muted)]"
                 >
                   Clear
-                </button>
+                </Button>
               )}
             </div>
           </div>
-          <div className="glass rounded overflow-hidden max-h-72 overflow-y-auto">
-            <table className="w-full text-[13px]">
-              <thead className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
-                <tr className="border-b border-[var(--color-border)]">
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Type</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">ID</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Status</th>
-                  <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider" />
-                </tr>
-              </thead>
-              <tbody>
-                {filteredEntities.map((entity) => {
-                  const eKey = `${entity.entity_type}-${entity.entity_id}`;
-                  const isNew = newEntityKeys.has(eKey);
-                  return (
-                  <tr
-                    key={eKey}
-                    className={`border-b border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer ${isNew ? "animate-highlight-new" : ""}`}
-                    onClick={() => setSelectedEntity({ type: entity.entity_type, id: entity.entity_id, tenant: entity.tenant })}
-                    onAnimationEnd={() => { if (isNew) setNewEntityKeys((prev) => { const next = new Set(prev); next.delete(eKey); return next; }); }}
-                  >
-                    <td className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{entity.entity_type}</td>
-                    <td className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{entity.entity_id}</td>
-                    <td className="px-3.5 py-2.5">
-                      <StatusBadge status={entity.current_state ?? entity.actor_status} />
-                    </td>
-                    <td className="px-3.5 py-2.5 text-right">
-                      <Link
-                        href={`/entities/${entity.entity_type}/${entity.entity_id}?tenant=${encodeURIComponent(entity.tenant)}`}
-                        className="text-[11px] text-[var(--color-accent-teal)] hover:text-[var(--color-accent-teal)] transition-colors"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        Inspect
-                      </Link>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {filteredEntities.length === 0 && (
-              <div className="px-3.5 py-6 text-center text-[13px] text-[var(--color-text-muted)]">
-                No entities match the current filters.
-              </div>
-            )}
-          </div>
+          <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+            <ScrollArea className="max-h-72">
+              <Table className="text-[13px]">
+                <TableHeader className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
+                  <TableRow className="border-b border-[var(--color-border)] hover:bg-transparent">
+                    <TableHead className="px-3.5 py-2.5 text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">Type</TableHead>
+                    <TableHead className="px-3.5 py-2.5 text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">ID</TableHead>
+                    <TableHead className="px-3.5 py-2.5 text-[var(--color-text-muted)] text-xs uppercase tracking-wider h-auto">Status</TableHead>
+                    <TableHead className="px-3.5 py-2.5 h-auto" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredEntities.map((entity) => {
+                    const eKey = `${entity.entity_type}-${entity.entity_id}`;
+                    const isNew = newEntityKeys.has(eKey);
+                    return (
+                    <TableRow
+                      key={eKey}
+                      className={`border-b border-[var(--color-border)] cursor-pointer ${isNew ? "animate-highlight-new" : ""}`}
+                      onClick={() => setSelectedEntity({ type: entity.entity_type, id: entity.entity_id, tenant: entity.tenant })}
+                      onAnimationEnd={() => { if (isNew) setNewEntityKeys((prev) => { const next = new Set(prev); next.delete(eKey); return next; }); }}
+                    >
+                      <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{entity.entity_type}</TableCell>
+                      <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{entity.entity_id}</TableCell>
+                      <TableCell className="px-3.5 py-2.5">
+                        <StatusBadge status={entity.current_state ?? entity.actor_status} />
+                      </TableCell>
+                      <TableCell className="px-3.5 py-2.5 text-right">
+                        <Link
+                          href={`/entities/${entity.entity_type}/${entity.entity_id}?tenant=${encodeURIComponent(entity.tenant)}`}
+                          className="text-[11px] text-[var(--color-accent-teal)] hover:text-[var(--color-accent-teal)] transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          Inspect
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              {filteredEntities.length === 0 && (
+                <div className="px-3.5 py-6 text-center text-[13px] text-[var(--color-text-muted)]">
+                  No entities match the current filters.
+                </div>
+              )}
+            </ScrollArea>
+          </Card>
         </div>
       )}
 
@@ -435,11 +463,13 @@ export default function ActivityPage() {
           Failed Intents
         </h2>
         {!data || data.failed_intents.length === 0 ? (
-          <div className="glass rounded-[2px] p-6 text-center">
-            <p className="text-sm text-[var(--color-text-secondary)]">No failed intents recorded.</p>
-          </div>
+          <Card className="glass rounded-[2px] border-0 gap-0">
+            <CardContent className="p-6 text-center">
+              <p className="text-sm text-[var(--color-text-secondary)]">No failed intents recorded.</p>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="glass rounded overflow-hidden">
+          <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
             {(() => {
               const totalFailed = data.failed_intents.length;
               const totalPages = Math.ceil(totalFailed / FAILED_PER_PAGE);
@@ -496,27 +526,31 @@ export default function ActivityPage() {
                         Showing {(failedPage - 1) * FAILED_PER_PAGE + 1}-{Math.min(failedPage * FAILED_PER_PAGE, totalFailed)} of {totalFailed}
                       </span>
                       <div className="flex gap-2">
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => setFailedPage((p) => Math.max(1, p - 1))}
                           disabled={failedPage === 1}
-                          className="px-3 py-1 text-xs rounded-sm bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border-hover)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          className="rounded-[2px] text-xs bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] disabled:opacity-30"
                         >
                           Prev
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => setFailedPage((p) => Math.min(totalPages, p + 1))}
                           disabled={failedPage === totalPages}
-                          className="px-3 py-1 text-xs rounded-sm bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border-hover)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          className="rounded-[2px] text-xs bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] disabled:opacity-30"
                         >
                           Next
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
                 </>
               );
             })()}
-          </div>
+          </Card>
         )}
       </div>
 

@@ -9,6 +9,11 @@ import type { AgentHistoryResponse, PolicyEntry, SpecSummary } from "@/lib/types
 import ErrorDisplay from "@/components/ErrorDisplay";
 import StatCard from "@/components/StatCard";
 import VisualPolicyCreator from "@/components/VisualPolicyCreator";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Tab = "history" | "policies";
 
@@ -135,16 +140,18 @@ export default function AgentDetailPage() {
 
   if (historyPoll.loading && !data) {
     return (
-      <div className="animate-pulse">
-        <div className="h-4 bg-[var(--color-border)] rounded w-24 mb-3" />
-        <div className="h-6 bg-[var(--color-border)] rounded w-48 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-64 mb-6" />
+      <div>
+        <Skeleton className="h-4 w-24 mb-3" />
+        <Skeleton className="h-6 w-48 mb-1.5" />
+        <Skeleton className="h-3.5 w-64 mb-6" />
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="glass rounded p-3.5">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="glass rounded-[2px] border-0 gap-0">
+              <CardContent className="p-3.5">
+                <Skeleton className="h-3 w-20 mb-2" />
+                <Skeleton className="h-8 w-10" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -177,22 +184,17 @@ export default function AgentDetailPage() {
         </div>
         <div className="flex items-center gap-3">
           {activeTab === "history" && entityTypes.length > 1 && (
-            <select
-              value={entityTypeFilter}
-              onChange={(e) => setEntityTypeFilter(e.target.value)}
-              className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-            >
-              <option value="all">All types</option>
-              {entityTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          )}
-          {lastUpdated && (
-            <span className="text-xs text-[var(--color-text-muted)]">
-            </span>
+            <Select value={entityTypeFilter} onValueChange={setEntityTypeFilter}>
+              <SelectTrigger className="rounded-[2px] bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs h-7 w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-[2px]">
+                <SelectItem value="all">All types</SelectItem>
+                {entityTypes.map((t) => (
+                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
       </div>
@@ -220,18 +222,20 @@ export default function AgentDetailPage() {
       {/* Tab bar */}
       <div className="flex gap-1 mb-4 border-b border-[var(--color-border)]">
         {(["history", "policies"] as Tab[]).map((tab) => (
-          <button
+          <Button
             key={tab}
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => setActiveTab(tab)}
-            className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
+            className={`rounded-[2px] px-3 py-2 text-xs font-medium h-auto transition-colors border-b-2 -mb-px ${
               activeTab === tab
                 ? "border-[var(--color-accent-teal)] text-[var(--color-accent-teal)]"
                 : "border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
             }`}
           >
             {tab === "history" ? "Action History" : `Policies (${agentPolicies.length})`}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -239,12 +243,14 @@ export default function AgentDetailPage() {
       {actionError && (
         <div className="mb-4 flex items-center justify-between gap-2 rounded bg-[var(--color-accent-pink-dim)] border border-[var(--color-accent-pink)]/20 px-4 py-2.5">
           <p className="text-sm text-[var(--color-accent-pink)]">{actionError}</p>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setActionError(null)}
-            className="text-[var(--color-accent-pink)] text-xs flex-shrink-0"
+            className="rounded-[2px] text-[var(--color-accent-pink)] text-xs flex-shrink-0 h-auto"
           >
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
 
@@ -253,7 +259,8 @@ export default function AgentDetailPage() {
         <>
           {data && data.history.length > 0 ? (
             <div>
-              <div className="glass rounded overflow-hidden max-h-[600px] overflow-y-auto">
+              <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+                <ScrollArea className="max-h-[600px]">
                 {data.history.map((entry, i) => {
                   const ts = new Date(entry.timestamp);
                   const timeStr = ts.toLocaleString();
@@ -324,14 +331,15 @@ export default function AgentDetailPage() {
                     </div>
                   );
                 })}
-              </div>
+                </ScrollArea>
+              </Card>
             </div>
           ) : (
-            <div className="glass rounded p-6 text-center">
+            <Card className="glass rounded-[2px] border-0 gap-0"><CardContent className="p-6 text-center">
               <p className="text-sm text-[var(--color-text-secondary)]">
                 No action history recorded for this agent.
               </p>
-            </div>
+            </CardContent></Card>
           )}
         </>
       )}
@@ -343,13 +351,15 @@ export default function AgentDetailPage() {
             <p className="text-xs text-[var(--color-text-muted)]">
               Policies affecting this agent (direct or broad)
             </p>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => setShowPolicyCreator(!showPolicyCreator)}
-              className="px-2.5 py-1.5 text-xs bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] rounded-sm hover:bg-[var(--color-accent-teal-dim)] transition-colors"
+              className="rounded-[2px] px-2.5 py-1.5 text-xs h-auto bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] hover:bg-[var(--color-accent-teal-dim)] transition-colors"
             >
               {showPolicyCreator ? "Cancel" : "Add Policy"}
-            </button>
+            </Button>
           </div>
 
           {showPolicyCreator && (
@@ -364,10 +374,7 @@ export default function AgentDetailPage() {
           {agentPolicies.length > 0 ? (
             <div className="space-y-2">
               {agentPolicies.map((p) => (
-                <div
-                  key={`${p.tenant}:${p.policy_id}`}
-                  className="glass rounded px-3.5 py-2.5 flex items-start gap-3"
-                >
+                <Card key={`${p.tenant}:${p.policy_id}`} className="glass rounded-[2px] border-0 gap-0"><CardContent className="px-3.5 py-2.5 flex items-start gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-[12px] text-[var(--color-text-primary)] truncate">
@@ -392,32 +399,36 @@ export default function AgentDetailPage() {
                     </pre>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="sm"
                       onClick={() => handleTogglePolicy(p)}
-                      className="text-[10px] px-2 py-1 bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded-sm hover:bg-[var(--color-border)] transition-colors"
+                      className="rounded-[2px] text-[10px] px-2 py-1 h-auto bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] transition-colors"
                     >
                       {p.enabled ? "Disable" : "Enable"}
-                    </button>
+                    </Button>
                     {p.source === "manual" && (
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleDeletePolicy(p)}
-                        className="text-[10px] px-2 py-1 bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] rounded-sm hover:bg-[var(--color-accent-pink-dim)] transition-colors"
+                        className="rounded-[2px] text-[10px] px-2 py-1 h-auto bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] hover:bg-[var(--color-accent-pink-dim)] transition-colors"
                       >
                         Delete
-                      </button>
+                      </Button>
                     )}
                   </div>
-                </div>
+                </CardContent></Card>
               ))}
             </div>
           ) : (
-            <div className="glass rounded p-6 text-center">
+            <Card className="glass rounded-[2px] border-0 gap-0"><CardContent className="p-6 text-center">
               <p className="text-sm text-[var(--color-text-secondary)]">
                 No policies found for this agent.
               </p>
-            </div>
+            </CardContent></Card>
           )}
         </div>
       )}

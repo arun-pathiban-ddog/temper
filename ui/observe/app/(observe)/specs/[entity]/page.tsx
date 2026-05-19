@@ -7,16 +7,26 @@ import { fetchSpecDetail } from "@/lib/api";
 import type { SpecDetail } from "@/lib/types";
 import StateMachineGraph from "@/components/StateMachineGraph";
 import ErrorDisplay from "@/components/ErrorDisplay";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 function SpecSkeleton() {
   return (
-    <div className="animate-pulse">
-      <div className="h-3.5 bg-[var(--color-border)] rounded w-44 mb-1.5" />
-      <div className="h-6 bg-[var(--color-border)] rounded w-52 mb-5" />
-      <div className="h-4 bg-[var(--color-border)] rounded w-28 mb-2.5" />
-      <div className="bg-[var(--color-bg-surface)] rounded-[2px] h-56 mb-6" />
-      <div className="h-4 bg-[var(--color-border)] rounded w-24 mb-2.5" />
-      <div className="bg-[var(--color-bg-surface)] rounded-[2px] h-44" />
+    <div>
+      <Skeleton className="h-3.5 w-44 rounded-[2px] mb-1.5" />
+      <Skeleton className="h-6 w-52 rounded-[2px] mb-5" />
+      <Skeleton className="h-4 w-28 rounded-[2px] mb-2.5" />
+      <Skeleton className="h-56 rounded-[2px] mb-6" />
+      <Skeleton className="h-4 w-24 rounded-[2px] mb-2.5" />
+      <Skeleton className="h-44 rounded-[2px]" />
     </div>
   );
 }
@@ -110,25 +120,25 @@ export default function SpecViewer() {
       <div className="mb-6">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-2.5 tracking-tight">Transitions</h2>
         <div className="bg-[var(--color-bg-surface)] rounded-[2px] overflow-hidden">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-[var(--color-border)]">
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">Action</th>
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">Kind</th>
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">From</th>
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">To</th>
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">Guard</th>
-                <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">Effect</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="w-full text-[13px]">
+            <TableHeader>
+              <TableRow className="border-b border-[var(--color-border)] hover:bg-transparent">
+                <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Action</TableHead>
+                <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Kind</TableHead>
+                <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">From</TableHead>
+                <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">To</TableHead>
+                <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Guard</TableHead>
+                <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Effect</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {spec.actions.map((action, i) => (
-                <tr
+                <TableRow
                   key={i}
                   className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)] transition-colors"
                 >
-                  <td className="px-3.5 py-2 font-mono text-[var(--color-accent-teal)]">{action.name}</td>
-                  <td className="px-3.5 py-2">
+                  <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-accent-teal)]">{action.name}</TableCell>
+                  <TableCell className="px-3.5 py-2.5">
                     <span
                       className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
                         action.kind === "input"
@@ -138,19 +148,19 @@ export default function SpecViewer() {
                     >
                       {action.kind}
                     </span>
-                  </td>
-                  <td className="px-3.5 py-2 font-mono text-[var(--color-text-secondary)]">{action.from.join(", ")}</td>
-                  <td className="px-3.5 py-2 font-mono text-[var(--color-text-secondary)]">{action.to ?? <span className="text-[var(--color-text-muted)]">--</span>}</td>
-                  <td className="px-3.5 py-2 font-mono text-[var(--color-accent-pink)]/70 text-[11px]">
+                  </TableCell>
+                  <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{action.from.join(", ")}</TableCell>
+                  <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{action.to ?? <span className="text-[var(--color-text-muted)]">--</span>}</TableCell>
+                  <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-accent-pink)]/70 text-[11px]">
                     {action.guards.length > 0 ? action.guards.join("; ") : <span className="text-[var(--color-text-muted)]">--</span>}
-                  </td>
-                  <td className="px-3.5 py-2 font-mono text-[var(--color-text-secondary)] text-[11px]">
+                  </TableCell>
+                  <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)] text-[11px]">
                     {action.effects.length > 0 ? action.effects.join("; ") : <span className="text-[var(--color-text-muted)]">--</span>}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </div>
 
@@ -158,16 +168,16 @@ export default function SpecViewer() {
       <div className="mb-6">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-2.5 tracking-tight">Invariants</h2>
         {spec.invariants.length === 0 ? (
-          <div className="bg-[var(--color-bg-surface)] rounded-[2px] p-6 text-center">
+          <Card className="rounded-[2px] border-[var(--color-border)] gap-0"><CardContent className="p-6 text-center">
             <p className="text-[13px] text-[var(--color-text-secondary)]">No invariants defined.</p>
-          </div>
+          </CardContent></Card>
         ) : (
           <div className="space-y-1.5">
             {spec.invariants.map((inv, i) => (
-              <div
+              <Card
                 key={i}
-                className="bg-[var(--color-bg-surface)] rounded-[2px] p-3"
-              >
+                className="rounded-[2px] border-[var(--color-border)] gap-0"
+              ><CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-[13px] font-semibold text-[var(--color-text-primary)]">{inv.name}</span>
                 </div>
@@ -181,7 +191,7 @@ export default function SpecViewer() {
                     <code className="font-mono text-[var(--color-accent-teal)]/70 text-[11px]">{inv.assertion}</code>
                   </div>
                 </div>
-              </div>
+              </CardContent></Card>
             ))}
           </div>
         )}
@@ -191,32 +201,32 @@ export default function SpecViewer() {
       <div className="mb-6">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-2.5 tracking-tight">State Variables</h2>
         {spec.state_variables.length === 0 ? (
-          <div className="bg-[var(--color-bg-surface)] rounded-[2px] p-6 text-center">
+          <Card className="rounded-[2px] border-[var(--color-border)] gap-0"><CardContent className="p-6 text-center">
             <p className="text-[13px] text-[var(--color-text-secondary)]">No state variables defined.</p>
-          </div>
+          </CardContent></Card>
         ) : (
           <div className="bg-[var(--color-bg-surface)] rounded-[2px] overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-[var(--color-border)]">
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">Name</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">Type</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-[11px] uppercase tracking-wider">Initial Value</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="w-full text-[13px]">
+              <TableHeader>
+                <TableRow className="border-b border-[var(--color-border)] hover:bg-transparent">
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Name</TableHead>
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Type</TableHead>
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Initial Value</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {spec.state_variables.map((v, i) => (
-                  <tr
+                  <TableRow
                     key={i}
                     className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)] transition-colors"
                   >
-                    <td className="px-3.5 py-2 font-mono text-[var(--color-text-primary)]">{v.name}</td>
-                    <td className="px-3.5 py-2 font-mono text-[var(--color-accent-lime)] text-[11px]">{v.var_type}</td>
-                    <td className="px-3.5 py-2 font-mono text-[var(--color-text-secondary)] text-[11px]">{v.initial}</td>
-                  </tr>
+                    <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-text-primary)]">{v.name}</TableCell>
+                    <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-accent-lime)] text-[11px]">{v.var_type}</TableCell>
+                    <TableCell className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)] text-[11px]">{v.initial}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

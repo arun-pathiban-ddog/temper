@@ -12,6 +12,11 @@ import type {
   PlatformGapCategory,
 } from "@/lib/types";
 import ErrorDisplay from "@/components/ErrorDisplay";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
 
 const categoryColors: Record<PlatformGapCategory, string> = {
   MissingMethod: "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)]",
@@ -52,7 +57,8 @@ function FeatureRequestCard({
   const createdAt = new Date(request.created_at).toLocaleString();
 
   return (
-    <div className="bg-[var(--color-bg-surface)] rounded-[2px] p-4 animate-fade-in">
+    <Card className="rounded-[2px] border-[var(--color-border)] gap-0 animate-fade-in">
+      <CardContent className="p-4">
       {/* Header row */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2 flex-wrap">
@@ -121,11 +127,13 @@ function FeatureRequestCard({
       {/* Actions */}
       <div className="flex items-center gap-2 pt-2 border-t border-[var(--color-border)]">
         {DISPOSITIONS.filter((d) => d !== request.disposition).map((d) => (
-          <button
+          <Button
             key={d}
+            variant="ghost"
+            size="sm"
             onClick={() => onUpdate(request.id, d, showNotes ? notes : undefined)}
             disabled={acting}
-            className={`px-2.5 py-1 text-[11px] rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`rounded-[2px] px-2.5 py-1 text-[11px] h-auto transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
               d === "Resolved"
                 ? "bg-[var(--color-accent-teal-dim)] hover:bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]"
                 : d === "WontFix"
@@ -138,39 +146,44 @@ function FeatureRequestCard({
             }`}
           >
             {d === "WontFix" ? "Won't Fix" : d}
-          </button>
+          </Button>
         ))}
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setShowNotes(!showNotes)}
-          className="ml-auto text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+          className="rounded-[2px] ml-auto text-[11px] h-auto text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
         >
           {showNotes ? "Hide Notes" : "Add Notes"}
-        </button>
+        </Button>
       </div>
 
       {/* Notes input */}
       {showNotes && (
         <div className="mt-3 flex gap-2">
-          <input
+          <Input
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Developer notes..."
-            className="flex-1 bg-black/30 border border-[var(--color-border)] rounded-sm px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-accent-teal)]/30"
+            className="rounded-[2px] flex-1 bg-black/30 border border-[var(--color-border)] px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent-teal)]/30 h-auto"
           />
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => {
               onUpdate(request.id, request.disposition, notes);
               setShowNotes(false);
             }}
             disabled={acting}
-            className="px-2.5 py-1.5 bg-[var(--color-accent-teal-dim)] hover:bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] text-xs rounded-sm transition-colors disabled:opacity-40"
+            className="rounded-[2px] px-2.5 py-1.5 bg-[var(--color-accent-teal-dim)] hover:bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] text-xs h-auto transition-colors disabled:opacity-40"
           >
             Save
-          </button>
+          </Button>
         </div>
       )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -227,15 +240,17 @@ export default function FeatureRequestsPage() {
 
   if (featuresPoll.loading && !requests) {
     return (
-      <div className="animate-pulse">
-        <div className="h-6 bg-[var(--color-border)] rounded w-48 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-72 mb-6" />
+      <div>
+        <Skeleton className="h-6 w-48 mb-1.5" />
+        <Skeleton className="h-3.5 w-72 mb-6" />
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="glass rounded-[2px] p-4">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="rounded-[2px] border-[var(--color-border)] gap-0">
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 mb-2" />
+                <Skeleton className="h-8 w-10" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -278,60 +293,66 @@ export default function FeatureRequestsPage() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-4 gap-3 mb-6">
-        <div className="glass rounded-[2px] p-4">
-          <div className="text-xs text-[var(--color-text-muted)]">Open</div>
-          <div className={`text-4xl font-bold font-mono mt-0.5 ${counts.open > 0 ? "text-[var(--color-accent-pink)]" : "text-[var(--color-text-primary)]"}`}>
-            {counts.open}
-          </div>
-        </div>
-        <div className="glass rounded-[2px] p-4">
-          <div className="text-xs text-[var(--color-text-muted)]">Planned</div>
-          <div className="text-4xl font-bold font-mono mt-0.5 text-[var(--color-accent-lime)]">
-            {counts.planned}
-          </div>
-        </div>
-        <div className="glass rounded-[2px] p-4">
-          <div className="text-xs text-[var(--color-text-muted)]">Resolved</div>
-          <div className="text-4xl font-bold font-mono mt-0.5 text-[var(--color-accent-teal)]">
-            {counts.resolved}
-          </div>
-        </div>
-        <div className="glass rounded-[2px] p-4">
-          <div className="text-xs text-[var(--color-text-muted)]">Total</div>
-          <div className="text-4xl font-bold font-mono mt-0.5 text-[var(--color-text-primary)]">
-            {counts.total}
-          </div>
-        </div>
+        <Card className="rounded-[2px] border-[var(--color-border)] gap-0">
+          <CardContent className="p-4">
+            <div className="text-xs text-[var(--color-text-muted)]">Open</div>
+            <div className={`text-4xl font-bold font-mono mt-0.5 ${counts.open > 0 ? "text-[var(--color-accent-pink)]" : "text-[var(--color-text-primary)]"}`}>
+              {counts.open}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-[2px] border-[var(--color-border)] gap-0">
+          <CardContent className="p-4">
+            <div className="text-xs text-[var(--color-text-muted)]">Planned</div>
+            <div className="text-4xl font-bold font-mono mt-0.5 text-[var(--color-accent-lime)]">
+              {counts.planned}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-[2px] border-[var(--color-border)] gap-0">
+          <CardContent className="p-4">
+            <div className="text-xs text-[var(--color-text-muted)]">Resolved</div>
+            <div className="text-4xl font-bold font-mono mt-0.5 text-[var(--color-accent-teal)]">
+              {counts.resolved}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-[2px] border-[var(--color-border)] gap-0">
+          <CardContent className="p-4">
+            <div className="text-xs text-[var(--color-text-muted)]">Total</div>
+            <div className="text-4xl font-bold font-mono mt-0.5 text-[var(--color-text-primary)]">
+              {counts.total}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-4 mb-4">
-        <div className="flex gap-1">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as FilterTab)} className="mb-4">
+        <TabsList variant="line" className="w-full justify-start rounded-none border-b border-[var(--color-border)] bg-transparent h-auto p-0">
           {(["all", ...DISPOSITIONS] as FilterTab[]).map((tab) => (
-            <button
+            <TabsTrigger
               key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`text-xs px-2 py-1 rounded transition-colors ${
-                activeTab === tab
-                  ? "text-[var(--color-accent-teal)] border-b-2 border-[var(--color-accent-teal)]"
-                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-              }`}
+              value={tab}
+              className="rounded-none border-0 border-b-2 -mb-px px-3 py-2 text-xs data-[state=active]:border-[var(--color-accent-teal)] data-[state=active]:text-[var(--color-accent-teal)] data-[state=inactive]:border-transparent data-[state=inactive]:text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] bg-transparent shadow-none"
             >
               {tab === "all" ? "All" : tab === "WontFix" ? "Won't Fix" : tab}
-            </button>
+            </TabsTrigger>
           ))}
-        </div>
-      </div>
+        </TabsList>
+      </Tabs>
 
       {/* Request Cards */}
       {filteredRequests.length === 0 ? (
-        <div className="glass rounded-[2px] p-6 text-center">
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            {activeTab === "all"
-              ? "No feature requests yet. They will appear as platform gaps are detected."
-              : `No feature requests with disposition "${activeTab === "WontFix" ? "Won't Fix" : activeTab}".`}
-          </p>
-        </div>
+        <Card className="glass rounded-[2px] border-0 gap-0">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              {activeTab === "all"
+                ? "No feature requests yet. They will appear as platform gaps are detected."
+                : `No feature requests with disposition "${activeTab === "WontFix" ? "Won't Fix" : activeTab}".`}
+            </p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid gap-3">
           {filteredRequests

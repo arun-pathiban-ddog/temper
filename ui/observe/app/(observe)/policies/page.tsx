@@ -22,6 +22,12 @@ import ErrorDisplay from "@/components/ErrorDisplay";
 import StatCard from "@/components/StatCard";
 import PolicyCard from "@/components/PolicyCard";
 import VisualPolicyCreator from "@/components/VisualPolicyCreator";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent } from "@/components/ui/card";
 
 const ALL_TENANTS = "__all__";
 const SOURCE_FILTERS: { value: PolicySource | "all"; label: string }[] = [
@@ -218,15 +224,17 @@ export default function PoliciesPage() {
 
   if (initialLoading) {
     return (
-      <div className="animate-pulse">
-        <div className="h-6 bg-[var(--color-border)] rounded w-36 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-64 mb-6" />
+      <div>
+        <Skeleton className="h-6 w-36 mb-1.5" />
+        <Skeleton className="h-3.5 w-64 mb-6" />
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="glass rounded-[2px] p-4">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="rounded-[2px] border-[var(--color-border)] gap-0">
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 mb-2" />
+                <Skeleton className="h-8 w-10" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -256,55 +264,52 @@ export default function PoliciesPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <select
-            value={tenant}
-            onChange={(e) => setTenant(e.target.value)}
-            className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-          >
-            <option value={ALL_TENANTS}>All tenants</option>
-            {tenants.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <select
-            value={sourceFilter}
-            onChange={(e) =>
-              setSourceFilter(e.target.value as PolicySource | "all")
-            }
-            className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-          >
-            {SOURCE_FILTERS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as "all" | "enabled" | "disabled")
-            }
-            className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-          >
-            <option value="all">All statuses</option>
-            <option value="enabled">Enabled</option>
-            <option value="disabled">Disabled</option>
-          </select>
-          <input
+          <Select value={tenant} onValueChange={setTenant}>
+            <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-36 h-7">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_TENANTS}>All tenants</SelectItem>
+              {tenants.map((t) => (
+                <SelectItem key={t} value={t}>{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as PolicySource | "all")}>
+            <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-36 h-7">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SOURCE_FILTERS.map((f) => (
+                <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "all" | "enabled" | "disabled")}>
+            <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-32 h-7">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="enabled">Enabled</SelectItem>
+              <SelectItem value="disabled">Disabled</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
             type="text"
             placeholder="Search policies..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2.5 py-1.5 w-48 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-teal)] placeholder:text-[var(--color-text-muted)]"
+            className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-48 h-7 focus:ring-1 focus:ring-[var(--color-accent-teal)] placeholder:text-[var(--color-text-muted)]"
           />
-          <button
+          <Button
+            variant={showCreate ? "secondary" : "outline"}
+            size="sm"
             onClick={() => setShowCreate(!showCreate)}
-            className="px-2.5 py-1.5 text-xs bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] rounded-sm hover:bg-[var(--color-accent-teal-dim)] transition-colors"
+            className="rounded-[2px] text-xs bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]"
           >
             {showCreate ? "Cancel" : "New Policy"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -331,21 +336,20 @@ export default function PoliciesPage() {
 
       {/* Action error banner */}
       {actionError && (
-        <div
-          role="alert"
-          className="mb-4 flex items-center justify-between gap-2 rounded bg-[var(--color-accent-pink-dim)] border border-[var(--color-accent-pink)]/20 px-4 py-2.5"
-        >
-          <p className="text-sm text-[var(--color-accent-pink)]">
+        <Alert variant="destructive" className="mb-4 rounded-[2px] bg-[var(--color-accent-pink-dim)] border-[var(--color-accent-pink)]/20 flex items-center justify-between gap-2 py-2.5">
+          <AlertDescription className="text-[var(--color-accent-pink)] col-start-1">
             {actionError}
-          </p>
-          <button
+          </AlertDescription>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setActionError(null)}
-            className="text-[var(--color-accent-pink)] hover:text-[var(--color-accent-pink)] text-xs flex-shrink-0"
+            className="rounded-[2px] text-[var(--color-accent-pink)] text-xs flex-shrink-0"
             aria-label="Dismiss error"
           >
             Dismiss
-          </button>
-        </div>
+          </Button>
+        </Alert>
       )}
 
       {/* Visual policy creator */}
@@ -360,13 +364,15 @@ export default function PoliciesPage() {
 
       {/* Policy list */}
       {filteredPolicies.length === 0 && (
-        <div className="glass rounded-[2px] p-6 text-center">
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            {allPolicies.length === 0
-              ? "No policies configured. Install an OS app or create a policy to get started."
-              : "No policies match your filters."}
-          </p>
-        </div>
+        <Card className="rounded-[2px] border-[var(--color-border)] gap-0">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              {allPolicies.length === 0
+                ? "No policies configured. Install an OS app or create a policy to get started."
+                : "No policies match your filters."}
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Grouped by tenant */}

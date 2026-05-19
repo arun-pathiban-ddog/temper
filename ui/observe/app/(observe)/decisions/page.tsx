@@ -27,6 +27,20 @@ import {
   groupByDate,
 } from "@/lib/utils";
 import { groupDecisions, type GroupingStrategy } from "@/lib/decision-grouping";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
 
 const ALL_TENANTS = "__all__";
 
@@ -61,80 +75,82 @@ function DecisionCard({
   const redactedAttrs = redactSensitiveFields(decision.resource_attrs);
 
   return (
-    <div className="glass rounded p-4 animate-fade-in">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-[var(--color-accent-pink)] animate-pulse" />
-          <span className="text-sm font-mono text-[var(--color-text-primary)] truncate max-w-[200px]" title={decision.agent_id}>
-            {decision.agent_id}
-          </span>
-          {showTenant && (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]">
-              {decision.tenant}
+    <Card className="glass rounded-[2px] border-0 gap-0 animate-fade-in">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-[var(--color-accent-pink)] animate-pulse" />
+            <span className="text-sm font-mono text-[var(--color-text-primary)] truncate max-w-[200px]" title={decision.agent_id}>
+              {decision.agent_id}
             </span>
-          )}
+            {showTenant && (
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]">
+                {decision.tenant}
+              </span>
+            )}
+          </div>
+          <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{timeStr}</span>
         </div>
-        <span className="text-[11px] text-[var(--color-text-muted)] font-mono">{timeStr}</span>
-      </div>
 
-      <div className="space-y-1.5 mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16">
-            Action
-          </span>
-          <span className="text-[13px] font-mono text-[var(--color-accent-teal)]">
-            {decision.action}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16">
-            Resource
-          </span>
-          <span className="text-[13px] font-mono text-[var(--color-text-secondary)] truncate max-w-[280px] inline-block" title={`${decision.resource_type}::${decision.resource_id}`}>
-            {decision.resource_type}::{decision.resource_id}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16">
-            Reason
-          </span>
-          <span className="text-[13px] text-[var(--color-accent-pink)]">
-            {redactDenialReason(decision.denial_reason)}
-          </span>
-        </div>
-        {decision.module_name && (
+        <div className="space-y-1.5 mb-3">
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16">
-              Module
+              Action
             </span>
-            <span className="text-[13px] font-mono text-[var(--color-text-secondary)]">
-              {decision.module_name}
+            <span className="text-[13px] font-mono text-[var(--color-accent-teal)]">
+              {decision.action}
             </span>
           </div>
-        )}
-        {decision.resource_attrs &&
-          Object.keys(decision.resource_attrs).length > 0 && (
-            <div className="flex items-start gap-2">
-              <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16 pt-0.5">
-                Attrs
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16">
+              Resource
+            </span>
+            <span className="text-[13px] font-mono text-[var(--color-text-secondary)] truncate max-w-[280px] inline-block" title={`${decision.resource_type}::${decision.resource_id}`}>
+              {decision.resource_type}::{decision.resource_id}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16">
+              Reason
+            </span>
+            <span className="text-[13px] text-[var(--color-accent-pink)]">
+              {redactDenialReason(decision.denial_reason)}
+            </span>
+          </div>
+          {decision.module_name && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16">
+                Module
               </span>
-              <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] overflow-x-auto whitespace-pre-wrap">
-                {JSON.stringify(redactedAttrs, null, 2)}
-              </pre>
+              <span className="text-[13px] font-mono text-[var(--color-text-secondary)]">
+                {decision.module_name}
+              </span>
             </div>
           )}
-      </div>
+          {decision.resource_attrs &&
+            Object.keys(decision.resource_attrs).length > 0 && (
+              <div className="flex items-start gap-2">
+                <span className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider w-16 pt-0.5">
+                  Attrs
+                </span>
+                <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] overflow-x-auto whitespace-pre-wrap">
+                  {JSON.stringify(redactedAttrs, null, 2)}
+                </pre>
+              </div>
+            )}
+        </div>
 
-      {/* Policy Builder replaces old scope dropdown */}
-      <div className="pt-2 border-t border-[var(--color-border)]">
-        <PolicyBuilder
-          decision={decision}
-          onApprove={(matrix) => onApprove(decision.id, matrix, decision.tenant)}
-          onDeny={() => onDeny(decision.id, decision.tenant)}
-          disabled={acting}
-        />
-      </div>
-    </div>
+        {/* Policy Builder replaces old scope dropdown */}
+        <div className="pt-2 border-t border-[var(--color-border)]">
+          <PolicyBuilder
+            decision={decision}
+            onApprove={(matrix) => onApprove(decision.id, matrix, decision.tenant)}
+            onDeny={() => onDeny(decision.id, decision.tenant)}
+            disabled={acting}
+          />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -159,27 +175,27 @@ function HistoryRow({
 
   return (
     <>
-      <tr
-        className={`border-b border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors ${even ? "bg-[var(--color-bg-elevated)]" : ""}`}
+      <TableRow
+        className={`cursor-pointer border-b border-[var(--color-border)] ${even ? "bg-[var(--color-bg-elevated)]" : ""}`}
         onClick={() =>
           decision.generated_policy && setExpanded((prev) => !prev)
         }
       >
         {showTenant && (
-          <td className="px-3 py-2 font-mono text-[var(--color-text-secondary)] text-[11px] whitespace-nowrap">
+          <TableCell className="px-3 py-2 font-mono text-[var(--color-text-secondary)] text-[11px] whitespace-nowrap">
             {decision.tenant}
-          </td>
+          </TableCell>
         )}
-        <td className="px-3 py-2 font-mono text-[var(--color-text-secondary)] max-w-[140px] truncate" title={decision.agent_id}>
+        <TableCell className="px-3 py-2 font-mono text-[var(--color-text-secondary)] max-w-[140px] truncate" title={decision.agent_id}>
           {decision.agent_id}
-        </td>
-        <td className="px-3 py-2 font-mono text-[var(--color-accent-teal)] max-w-[100px] truncate" title={decision.action}>
+        </TableCell>
+        <TableCell className="px-3 py-2 font-mono text-[var(--color-accent-teal)] max-w-[100px] truncate" title={decision.action}>
           {decision.action}
-        </td>
-        <td className="px-3 py-2 font-mono text-[var(--color-text-secondary)] max-w-[160px] truncate" title={`${decision.resource_type}::${decision.resource_id}`}>
+        </TableCell>
+        <TableCell className="px-3 py-2 font-mono text-[var(--color-text-secondary)] max-w-[160px] truncate" title={`${decision.resource_type}::${decision.resource_id}`}>
           {decision.resource_type}::{decision.resource_id}
-        </td>
-        <td className="px-3 py-2 whitespace-nowrap">
+        </TableCell>
+        <TableCell className="px-3 py-2 whitespace-nowrap">
           <span
             className={`text-[11px] font-mono px-1.5 py-0.5 rounded-full ${
               decision.status === "approved"
@@ -191,30 +207,30 @@ function HistoryRow({
           >
             {decision.status}
           </span>
-        </td>
-        <td className="px-3 py-2 font-mono text-[var(--color-text-secondary)] text-[11px] max-w-[180px] truncate" title={decision.approved_scope ? `${decision.approved_scope.principal} / ${decision.approved_scope.action} / ${decision.approved_scope.resource}` : undefined}>
+        </TableCell>
+        <TableCell className="px-3 py-2 font-mono text-[var(--color-text-secondary)] text-[11px] max-w-[180px] truncate" title={decision.approved_scope ? `${decision.approved_scope.principal} / ${decision.approved_scope.action} / ${decision.approved_scope.resource}` : undefined}>
           {decision.approved_scope ? `${decision.approved_scope.principal} / ${decision.approved_scope.action} / ${decision.approved_scope.resource}` : "--"}
-        </td>
-        <td className="px-3 py-2 text-right font-mono text-[var(--color-text-muted)] text-[11px] whitespace-nowrap">
+        </TableCell>
+        <TableCell className="px-3 py-2 text-right font-mono text-[var(--color-text-muted)] text-[11px] whitespace-nowrap">
           {decidedTs}
           {decision.generated_policy && (
             <span className="ml-1 text-[var(--color-text-muted)]">
               {expanded ? "\u25B4" : "\u25BE"}
             </span>
           )}
-        </td>
-      </tr>
+        </TableCell>
+      </TableRow>
       {expanded && decision.generated_policy && (
-        <tr className="border-b border-[var(--color-border)]">
-          <td
+        <TableRow className="border-b border-[var(--color-border)]">
+          <TableCell
             colSpan={showTenant ? 7 : 6}
             className="px-3.5 py-2.5"
           >
             <pre className="p-2.5 bg-black/30 rounded text-[11px] font-mono text-[var(--color-text-secondary)] overflow-x-auto whitespace-pre-wrap border border-[var(--color-border)]">
               {decision.generated_policy}
             </pre>
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       )}
     </>
   );
@@ -426,15 +442,17 @@ export default function DecisionsPage() {
 
   if (initialLoading) {
     return (
-      <div className="animate-pulse">
-        <div className="h-6 bg-[var(--color-border)] rounded w-36 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-64 mb-6" />
+      <div>
+        <Skeleton className="h-6 w-36 mb-1.5" />
+        <Skeleton className="h-3.5 w-64 mb-6" />
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="glass rounded-[2px] p-4">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="glass rounded-[2px] border-0 gap-0">
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 mb-2" />
+                <Skeleton className="h-8 w-10" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -472,62 +490,69 @@ export default function DecisionsPage() {
               </span>
             </div>
           )}
-          <select
-            value={tenant}
-            onChange={(e) => setTenant(e.target.value)}
-            className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-          >
-            <option value={ALL_TENANTS}>All tenants</option>
-            {tenants.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-          >
-            <option value="all">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="denied">Denied</option>
-            <option value="expired">Expired</option>
-          </select>
+          <Select value={tenant} onValueChange={setTenant}>
+            <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-36 h-7">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_TENANTS}>All tenants</SelectItem>
+              {tenants.map((t) => (
+                <SelectItem key={t} value={t}>{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-36 h-7">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="denied">Denied</SelectItem>
+              <SelectItem value="expired">Expired</SelectItem>
+            </SelectContent>
+          </Select>
           {pendingDecisions.length > 1 && (
             <>
-              <button
+              <Button
+                variant={batchMode ? "secondary" : "outline"}
+                size="sm"
                 onClick={() => {
                   setBatchMode(!batchMode);
                   setSelectedIds(new Set());
                 }}
-                className={`px-2.5 py-1.5 text-xs rounded-sm transition-colors ${
+                className={`rounded-[2px] text-xs ${
                   batchMode
                     ? "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] ring-1 ring-[var(--color-accent-teal)]"
-                    : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border-hover)]"
+                    : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]"
                 }`}
               >
                 Batch
-              </button>
+              </Button>
               {batchMode && (
-                <select
-                  value={groupingStrategy}
-                  onChange={(e) => setGroupingStrategy(e.target.value as GroupingStrategy)}
-                  className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-                >
-                  <option value="action_resource">By action + type</option>
-                  <option value="agent_action">By agent + action</option>
-                  <option value="agent_type_action">By agent type + action</option>
-                </select>
+                <Select value={groupingStrategy} onValueChange={(v) => setGroupingStrategy(v as GroupingStrategy)}>
+                  <SelectTrigger className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-[2px] w-44 h-7">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="action_resource">By action + type</SelectItem>
+                    <SelectItem value="agent_action">By agent + action</SelectItem>
+                    <SelectItem value="agent_type_action">By agent type + action</SelectItem>
+                  </SelectContent>
+                </Select>
               )}
             </>
           )}
           {resolvedDecisions.length > 0 && (
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => exportDecisions(data?.decisions ?? [])}
-              className="px-2.5 py-1.5 bg-[var(--color-bg-elevated)] hover:bg-[var(--color-border-hover)] text-[var(--color-text-secondary)] text-xs rounded-sm transition-colors"
+              className="rounded-[2px] bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] text-xs"
             >
               Export
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -558,18 +583,18 @@ export default function DecisionsPage() {
 
       {/* Polling error banner */}
       {decisionsPoll.error && !data && (
-        <div role="alert" className="mb-4 flex items-center justify-between gap-2 rounded bg-[var(--color-accent-pink-dim)] border border-[var(--color-accent-pink)]/20 px-4 py-2.5">
-          <p className="text-sm text-[var(--color-accent-pink)]">Failed to load decisions: {decisionsPoll.error}</p>
-          <button onClick={() => decisionsPoll.refresh()} className="text-[var(--color-accent-teal)] hover:text-[var(--color-accent-teal)] text-xs flex-shrink-0">Retry</button>
-        </div>
+        <Alert variant="destructive" className="mb-4 rounded-[2px] bg-[var(--color-accent-pink-dim)] border-[var(--color-accent-pink)]/20 flex items-center justify-between gap-2 py-2.5">
+          <AlertDescription className="text-[var(--color-accent-pink)] col-start-1">Failed to load decisions: {decisionsPoll.error}</AlertDescription>
+          <Button variant="ghost" size="sm" onClick={() => decisionsPoll.refresh()} className="rounded-[2px] text-[var(--color-accent-teal)] text-xs flex-shrink-0">Retry</Button>
+        </Alert>
       )}
 
       {/* Action error banner */}
       {actionError && (
-        <div role="alert" className="mb-4 flex items-center justify-between gap-2 rounded bg-[var(--color-accent-pink-dim)] border border-[var(--color-accent-pink)]/20 px-4 py-2.5">
-          <p className="text-sm text-[var(--color-accent-pink)]">{actionError}</p>
-          <button onClick={() => setActionError(null)} className="text-[var(--color-accent-pink)] hover:text-[var(--color-accent-pink)] text-xs flex-shrink-0" aria-label="Dismiss error">Dismiss</button>
-        </div>
+        <Alert variant="destructive" className="mb-4 rounded-[2px] bg-[var(--color-accent-pink-dim)] border-[var(--color-accent-pink)]/20 flex items-center justify-between gap-2 py-2.5">
+          <AlertDescription className="text-[var(--color-accent-pink)] col-start-1">{actionError}</AlertDescription>
+          <Button variant="ghost" size="sm" onClick={() => setActionError(null)} className="rounded-[2px] text-[var(--color-accent-pink)] text-xs flex-shrink-0" aria-label="Dismiss error">Dismiss</Button>
+        </Alert>
       )}
 
       {/* Pending Decisions */}
@@ -617,11 +642,13 @@ export default function DecisionsPage() {
       )}
 
       {pendingDecisions.length === 0 && statusFilter === "all" && (
-        <div className="glass rounded-[2px] p-6 text-center mb-6">
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            No pending decisions. All clear.
-          </p>
-        </div>
+        <Card className="glass rounded-[2px] border-0 gap-0 mb-6">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              No pending decisions. All clear.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Batch approve bar */}
@@ -651,36 +678,37 @@ export default function DecisionsPage() {
                     {decisions.length}
                   </span>
                 </div>
-                <div className="glass rounded overflow-hidden max-h-96 overflow-y-auto overflow-x-auto">
-                  <table className="w-full text-[13px]">
-                    <thead className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
-                      <tr className="border-b border-[var(--color-border)]">
+                <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+                  <ScrollArea className="max-h-96">
+                  <Table className="text-[13px]">
+                    <TableHeader className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
+                      <TableRow className="border-b border-[var(--color-border)] hover:bg-transparent">
                         {showTenantBadge && (
-                          <th className="text-left px-3 py-2 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider whitespace-nowrap">
+                          <TableHead className="px-3 py-2 text-[var(--color-text-muted)] text-xs uppercase tracking-wider whitespace-nowrap h-auto">
                             Tenant
-                          </th>
+                          </TableHead>
                         )}
-                        <th className="text-left px-3 py-2 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider whitespace-nowrap">
+                        <TableHead className="px-3 py-2 text-[var(--color-text-muted)] text-xs uppercase tracking-wider whitespace-nowrap h-auto">
                           Agent
-                        </th>
-                        <th className="text-left px-3 py-2 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider whitespace-nowrap">
+                        </TableHead>
+                        <TableHead className="px-3 py-2 text-[var(--color-text-muted)] text-xs uppercase tracking-wider whitespace-nowrap h-auto">
                           Action
-                        </th>
-                        <th className="text-left px-3 py-2 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider whitespace-nowrap">
+                        </TableHead>
+                        <TableHead className="px-3 py-2 text-[var(--color-text-muted)] text-xs uppercase tracking-wider whitespace-nowrap h-auto">
                           Resource
-                        </th>
-                        <th className="text-left px-3 py-2 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider whitespace-nowrap">
+                        </TableHead>
+                        <TableHead className="px-3 py-2 text-[var(--color-text-muted)] text-xs uppercase tracking-wider whitespace-nowrap h-auto">
                           Status
-                        </th>
-                        <th className="text-left px-3 py-2 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider whitespace-nowrap">
+                        </TableHead>
+                        <TableHead className="px-3 py-2 text-[var(--color-text-muted)] text-xs uppercase tracking-wider whitespace-nowrap h-auto">
                           Scope
-                        </th>
-                        <th className="text-right px-3 py-2 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider whitespace-nowrap">
+                        </TableHead>
+                        <TableHead className="px-3 py-2 text-right text-[var(--color-text-muted)] text-xs uppercase tracking-wider whitespace-nowrap h-auto">
                           Decided
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {decisions.map((d, i) => (
                         <HistoryRow
                           key={d.id}
@@ -689,9 +717,10 @@ export default function DecisionsPage() {
                           even={i % 2 === 1}
                         />
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                  </ScrollArea>
+                </Card>
               </div>
             ),
           )}

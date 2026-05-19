@@ -1,4 +1,5 @@
 import type { EntityEvent } from "@/lib/types";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface EntityTimelineProps {
   events: EntityEvent[];
@@ -7,9 +8,9 @@ interface EntityTimelineProps {
 export default function EntityTimeline({ events }: EntityTimelineProps) {
   if (events.length === 0) {
     return (
-      <div className="bg-[var(--color-bg-surface)] rounded-[2px] p-6 text-center">
+      <Card className="rounded-[2px] border-[var(--color-border)] gap-0"><CardContent className="p-6 text-center">
         <p className="text-[13px] text-[var(--color-text-secondary)]">No events recorded yet.</p>
-      </div>
+      </CardContent></Card>
     );
   }
 
@@ -60,7 +61,7 @@ export default function EntityTimeline({ events }: EntityTimelineProps) {
               </div>
 
               {/* Event content */}
-              <div className="flex-1 bg-[var(--color-bg-surface)] rounded-[2px] p-2.5 min-w-0">
+              <Card className="flex-1 rounded-[2px] border-[var(--color-border)] gap-0 min-w-0"><CardContent className="p-2.5">
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="font-mono text-[13px] text-[var(--color-accent-teal)] font-medium">
                     {event.action}
@@ -77,7 +78,7 @@ export default function EntityTimeline({ events }: EntityTimelineProps) {
                 <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
                   by {event.actor}
                 </div>
-              </div>
+              </CardContent></Card>
             </div>
           );
         })}

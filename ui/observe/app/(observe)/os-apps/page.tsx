@@ -6,6 +6,9 @@ import { useSSERefresh } from "@/lib/hooks";
 import type { SkillsResponse, SpecSummary } from "@/lib/types";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import StatCard from "@/components/StatCard";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default function OsAppsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
@@ -78,15 +81,17 @@ export default function OsAppsPage() {
 
   if (initialLoading) {
     return (
-      <div className="animate-pulse">
-        <div className="h-6 bg-[var(--color-border)] rounded w-40 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-72 mb-6" />
+      <div>
+        <Skeleton className="h-6 w-40 rounded-[2px] mb-1.5" />
+        <Skeleton className="h-3.5 w-72 rounded-[2px] mb-6" />
         <div className="grid grid-cols-2 gap-3 mb-6">
           {[0, 1].map((i) => (
-            <div key={i} className="glass rounded-[2px] p-4">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="glass rounded-[2px] border-0 gap-0">
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 rounded-[2px] mb-2" />
+                <Skeleton className="h-8 w-10 rounded-[2px]" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -132,55 +137,61 @@ export default function OsAppsPage() {
             const isInstalling = installing === app.name;
 
             return (
-              <div key={app.name} className="glass rounded-[2px] p-5 flex flex-col gap-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="text-[15px] font-semibold text-[var(--color-text-primary)] tracking-tight">
-                      {app.name}
-                    </h3>
-                    <span className="text-[10px] font-mono text-[var(--color-text-muted)]">v{app.version}</span>
+              <Card key={app.name} className="glass rounded-[2px] border-0 gap-0">
+                <CardContent className="p-5 flex flex-col gap-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-[15px] font-semibold text-[var(--color-text-primary)] tracking-tight">
+                        {app.name}
+                      </h3>
+                      <span className="text-[10px] font-mono text-[var(--color-text-muted)]">v{app.version}</span>
+                    </div>
+                    {isInstalled ? (
+                      <span className="text-[10px] font-medium bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] px-2 py-1 rounded">
+                        Installed
+                      </span>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleInstall(app.name)}
+                        disabled={isInstalling}
+                        className="rounded-[2px] text-[11px] font-medium bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] px-3 py-1.5 h-auto hover:bg-[var(--color-border)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isInstalling ? "Installing..." : "Install"}
+                      </Button>
+                    )}
                   </div>
-                  {isInstalled ? (
-                    <span className="text-[10px] font-medium bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] px-2 py-1 rounded">
-                      Installed
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => handleInstall(app.name)}
-                      disabled={isInstalling}
-                      className="text-[11px] font-medium bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] px-3 py-1.5 rounded hover:bg-[var(--color-border)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isInstalling ? "Installing..." : "Install"}
-                    </button>
-                  )}
-                </div>
 
-                <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed">
-                  {app.description}
-                </p>
+                  <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed">
+                    {app.description}
+                  </p>
 
-                <div className="flex flex-wrap gap-1.5">
-                  {app.entity_types.map((et) => (
-                    <span
-                      key={et}
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        loadedEntityTypes.has(et)
-                          ? "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]"
-                          : "bg-[var(--color-accent-lime-dim)] text-[var(--color-text-secondary)]"
-                      }`}
-                    >
-                      {et}
-                    </span>
-                  ))}
-                </div>
-              </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {app.entity_types.map((et) => (
+                      <span
+                        key={et}
+                        className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                          loadedEntityTypes.has(et)
+                            ? "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]"
+                            : "bg-[var(--color-accent-lime-dim)] text-[var(--color-text-secondary)]"
+                        }`}
+                      >
+                        {et}
+                      </span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             );
           })}
         </div>
       ) : (
-        <div className="glass rounded-[2px] p-6 text-center">
-          <p className="text-sm text-[var(--color-text-secondary)]">No apps available in the catalog.</p>
-        </div>
+        <Card className="glass rounded-[2px] border-0 gap-0">
+          <CardContent className="p-6 text-center">
+            <p className="text-sm text-[var(--color-text-secondary)]">No apps available in the catalog.</p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

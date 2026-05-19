@@ -1,25 +1,27 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 const KNOWN_COLORS: Record<string, string> = {
-  active: "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]",
-  done: "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]",
-  completed: "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]",
-  cancelled: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]",
-  failed: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]",
-  error: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]",
+  active: "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent",
+  done: "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent",
+  completed: "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent",
+  cancelled: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] border-transparent",
+  failed: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] border-transparent",
+  error: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] border-transparent",
 };
 
 const HASH_PALETTES = [
-  "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]",
-  "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]",
-  "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)]",
-  "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)]",
-  "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]",
-  "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]",
-  "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]",
-  "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)]",
+  "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent",
+  "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] border-transparent",
+  "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)] border-transparent",
+  "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)] border-transparent",
+  "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] border-transparent",
+  "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent",
+  "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent",
+  "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)] border-transparent",
 ];
 
 function hashString(str: string): number {
@@ -53,11 +55,12 @@ export default function StatusBadge({ status }: { status: string }) {
   }, [status]);
 
   return (
-    <span
-      className={`text-xs font-mono px-2 py-0.5 rounded-full transition-colors duration-300 ${colors} ${flashClass}`}
+    <Badge
+      variant="outline"
+      className={cn("font-mono text-[10px] transition-colors duration-300", colors, flashClass)}
       onAnimationEnd={() => setFlashClass("")}
     >
       {status}
-    </span>
+    </Badge>
   );
 }

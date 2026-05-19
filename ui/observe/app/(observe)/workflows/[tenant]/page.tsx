@@ -9,6 +9,9 @@ import WorkflowTimeline from "@/components/WorkflowTimeline";
 import type { StepDetailsMap } from "@/components/WorkflowTimeline";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 /** Map verification level names from the API to workflow step names. */
 function levelToStepName(level: string): string | null {
@@ -21,13 +24,13 @@ function levelToStepName(level: string): string | null {
 
 function DetailSkeleton() {
   return (
-    <div className="animate-pulse">
-      <div className="h-3.5 bg-[var(--color-border)] rounded w-20 mb-3" />
-      <div className="h-6 bg-[var(--color-border)] rounded w-44 mb-1.5" />
-      <div className="h-3.5 bg-[var(--color-border)] rounded w-64 mb-6" />
+    <div>
+      <Skeleton className="h-3.5 w-20 rounded-[2px] mb-3" />
+      <Skeleton className="h-6 w-44 rounded-[2px] mb-1.5" />
+      <Skeleton className="h-3.5 w-64 rounded-[2px] mb-6" />
       <div className="space-y-4">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="bg-[var(--color-bg-surface)] rounded-[2px] p-4 h-56" />
+          <Skeleton key={i} className="h-56 rounded-[2px]" />
         ))}
       </div>
     </div>
@@ -190,47 +193,47 @@ export default function WorkflowDetailPage() {
           );
 
           return (
-            <div
+            <Card
               key={entity.entity_type}
-              className={`bg-[var(--color-bg-surface)] rounded-[2px] p-4 ${
-                entityFailed ? "bg-[var(--color-accent-pink-dim)]" : ""
-              }`}
+              className={cn("rounded-[2px] border-[var(--color-border)] gap-0", entityFailed && "bg-[var(--color-accent-pink-dim)] border-[var(--color-accent-pink)]/20")}
             >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2.5">
-                  <h3 className="text-sm font-semibold text-[var(--color-text-primary)] font-mono tracking-tight">
-                    {entity.entity_type}
-                  </h3>
-                  {entityDone && !entityFailed && (
-                    <span className="text-[10px] bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] px-2 py-0.5 rounded-full font-mono">
-                      Verified
-                    </span>
-                  )}
-                  {entityFailed && (
-                    <span className="text-[10px] bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] px-2 py-0.5 rounded-full font-mono">
-                      Failed
-                    </span>
-                  )}
-                  {!entityDone && !entityFailed && (
-                    <span className="text-[10px] bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] px-2 py-0.5 rounded-full font-mono">
-                      In Progress
-                    </span>
-                  )}
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <h3 className="text-sm font-semibold text-[var(--color-text-primary)] font-mono tracking-tight">
+                      {entity.entity_type}
+                    </h3>
+                    {entityDone && !entityFailed && (
+                      <span className="text-[10px] bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] px-2 py-0.5 rounded-full font-mono">
+                        Verified
+                      </span>
+                    )}
+                    {entityFailed && (
+                      <span className="text-[10px] bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] px-2 py-0.5 rounded-full font-mono">
+                        Failed
+                      </span>
+                    )}
+                    {!entityDone && !entityFailed && (
+                      <span className="text-[10px] bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] px-2 py-0.5 rounded-full font-mono">
+                        In Progress
+                      </span>
+                    )}
+                  </div>
+                  <Link
+                    href={`/specs/${entity.entity_type}`}
+                    className="text-[11px] text-[var(--color-accent-teal)] hover:text-[var(--color-accent-teal)] transition-colors"
+                  >
+                    View Spec
+                  </Link>
                 </div>
-                <Link
-                  href={`/specs/${entity.entity_type}`}
-                  className="text-[11px] text-[var(--color-accent-teal)] hover:text-[var(--color-accent-teal)] transition-colors"
-                >
-                  View Spec
-                </Link>
-              </div>
 
-              <WorkflowTimeline
-                steps={entity.steps}
-                entityType={entity.entity_type}
-                stepDetails={entityStepDetails[entity.entity_type]}
-              />
-            </div>
+                <WorkflowTimeline
+                  steps={entity.steps}
+                  entityType={entity.entity_type}
+                  stepDetails={entityStepDetails[entity.entity_type]}
+                />
+              </CardContent>
+            </Card>
           );
         })}
       </div>

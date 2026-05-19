@@ -7,6 +7,11 @@ import type { WasmModulesResponse, WasmInvocationsResponse } from "@/lib/types";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import StatCard from "@/components/StatCard";
 import { rateColor, rateBgColor } from "@/lib/utils";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function IntegrationsPage() {
   const [initialLoading, setInitialLoading] = useState(true);
@@ -68,15 +73,17 @@ export default function IntegrationsPage() {
 
   if (initialLoading) {
     return (
-      <div className="animate-pulse">
-        <div className="h-6 bg-[var(--color-border)] rounded w-40 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-72 mb-6" />
+      <div>
+        <Skeleton className="h-6 w-40 rounded-[2px] mb-1.5" />
+        <Skeleton className="h-3.5 w-72 rounded-[2px] mb-6" />
         <div className="grid grid-cols-3 gap-3 mb-6">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="glass rounded-[2px] p-4">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="glass rounded-[2px] border-0 gap-0">
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 rounded-[2px] mb-2" />
+                <Skeleton className="h-8 w-10 rounded-[2px]" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -99,16 +106,17 @@ export default function IntegrationsPage() {
         </div>
         <div className="flex items-center gap-3">
           {moduleNames.length > 0 && (
-            <select
-              value={moduleFilter}
-              onChange={(e) => setModuleFilter(e.target.value)}
-              className="bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs rounded-sm px-2 py-1.5 focus:outline-none"
-            >
-              <option value="all">All modules</option>
-              {moduleNames.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+            <Select value={moduleFilter} onValueChange={setModuleFilter}>
+              <SelectTrigger className="rounded-[2px] bg-[var(--color-bg-surface)] text-[var(--color-text-secondary)] text-xs h-7 w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-[2px]">
+                <SelectItem value="all">All modules</SelectItem>
+                {moduleNames.map((m) => (
+                  <SelectItem key={m} value={m}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
       </div>
@@ -128,35 +136,35 @@ export default function IntegrationsPage() {
       {modules && modules.modules.length > 0 && (
         <div className="mb-6">
           <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-3 tracking-tight">Modules</h2>
-          <div className="glass rounded overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
-                <tr className="border-b border-[var(--color-border)]">
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Tenant</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Name</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Hash</th>
-                  <th className="text-center px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Cached</th>
-                  <th className="text-right px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Invocations</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider w-32">Success Rate</th>
-                  <th className="text-left px-3.5 py-2.5 text-[var(--color-text-muted)] font-medium text-xs uppercase tracking-wider">Last Used</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+            <Table>
+              <TableHeader className="sticky top-0 bg-[color-mix(in_srgb,var(--color-bg-surface)_90%,transparent)] backdrop-blur-sm z-10">
+                <TableRow className="border-b border-[var(--color-border)] hover:bg-transparent">
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Tenant</TableHead>
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Name</TableHead>
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Hash</TableHead>
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider text-center">Cached</TableHead>
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider text-right">Invocations</TableHead>
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider w-32">Success Rate</TableHead>
+                  <TableHead className="h-auto px-3.5 py-2.5 text-[11px] text-[var(--color-text-muted)] font-medium uppercase tracking-wider">Last Used</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {modules.modules.map((mod_, i) => {
                   const rate = mod_.total_invocations > 0
                     ? Math.round(mod_.success_rate * 100)
                     : 0;
                   return (
-                    <tr
+                    <TableRow
                       key={`${mod_.tenant}-${mod_.module_name}`}
                       className={`border-b border-[var(--color-border)] ${i % 2 === 1 ? "bg-[var(--color-bg-elevated)]" : ""}`}
                     >
-                      <td className="px-3.5 py-2.5 text-[11px] text-[var(--color-text-secondary)]">{mod_.tenant}</td>
-                      <td className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)]">{mod_.module_name}</td>
-                      <td className="px-3.5 py-2.5 font-mono text-[var(--color-text-secondary)] text-[11px]">
+                      <TableCell className="px-3.5 py-2.5 text-[12px] text-[var(--color-text-secondary)]">{mod_.tenant}</TableCell>
+                      <TableCell className="px-3.5 py-2.5 text-[12px] font-mono text-[var(--color-text-secondary)]">{mod_.module_name}</TableCell>
+                      <TableCell className="px-3.5 py-2.5 text-[12px] font-mono text-[var(--color-text-secondary)]">
                         {mod_.sha256_hash.substring(0, 12)}...
-                      </td>
-                      <td className="px-3.5 py-2.5 text-center">
+                      </TableCell>
+                      <TableCell className="px-3.5 py-2.5 text-[12px] text-center">
                         {mod_.cached ? (
                           <span className="text-[10px] font-medium bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] px-1.5 py-0.5 rounded">
                             cached
@@ -166,11 +174,11 @@ export default function IntegrationsPage() {
                             cold
                           </span>
                         )}
-                      </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono text-[var(--color-text-secondary)]">
+                      </TableCell>
+                      <TableCell className="px-3.5 py-2.5 text-[12px] text-right font-mono text-[var(--color-text-secondary)]">
                         {mod_.total_invocations}
-                      </td>
-                      <td className="px-3.5 py-2.5">
+                      </TableCell>
+                      <TableCell className="px-3.5 py-2.5 text-[12px]">
                         {mod_.total_invocations > 0 ? (
                           <div className="flex items-center gap-2">
                             <div className="flex-1 h-1.5 bg-[var(--color-bg-elevated)] rounded-full overflow-hidden">
@@ -186,29 +194,31 @@ export default function IntegrationsPage() {
                         ) : (
                           <span className="text-[11px] text-[var(--color-text-muted)]">{"\u2013"}</span>
                         )}
-                      </td>
-                      <td className="px-3.5 py-2.5 text-[11px] text-[var(--color-text-secondary)] font-mono">
+                      </TableCell>
+                      <TableCell className="px-3.5 py-2.5 text-[12px] text-[var(--color-text-secondary)] font-mono">
                         {mod_.last_invoked_at
                           ? new Date(mod_.last_invoked_at).toLocaleTimeString()
                           : "\u2013"}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
         </div>
       )}
 
       {/* Empty state for modules */}
       {modules && modules.modules.length === 0 && (
-        <div className="glass rounded-[2px] p-6 text-center mb-6">
-          <div className="text-[var(--color-text-secondary)] text-sm">No WASM modules uploaded yet.</div>
-          <p className="text-[var(--color-text-muted)] text-xs mt-1">
-            Upload modules via POST /api/wasm/modules/:name
-          </p>
-        </div>
+        <Card className="glass rounded-[2px] border-0 gap-0 mb-6">
+          <CardContent className="p-6 text-center">
+            <div className="text-[var(--color-text-secondary)] text-sm">No WASM modules uploaded yet.</div>
+            <p className="text-[var(--color-text-muted)] text-xs mt-1">
+              Upload modules via POST /api/wasm/modules/:name
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Recent Invocations */}
@@ -220,11 +230,14 @@ export default function IntegrationsPage() {
           )}
         </h2>
         {!invocations || invocations.invocations.length === 0 ? (
-          <div className="glass rounded-[2px] p-6 text-center">
-            <p className="text-sm text-[var(--color-text-secondary)]">No invocations recorded yet.</p>
-          </div>
+          <Card className="glass rounded-[2px] border-0 gap-0">
+            <CardContent className="p-6 text-center">
+              <p className="text-sm text-[var(--color-text-secondary)]">No invocations recorded yet.</p>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="glass rounded overflow-hidden max-h-96 overflow-y-auto">
+          <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+            <ScrollArea className="max-h-96">
             {invocations.invocations.map((inv, i) => {
               const ts = new Date(inv.timestamp);
               const timeStr = ts.toLocaleTimeString();
@@ -293,7 +306,8 @@ export default function IntegrationsPage() {
                 </div>
               );
             })}
-          </div>
+            </ScrollArea>
+          </Card>
         )}
       </div>
     </div>

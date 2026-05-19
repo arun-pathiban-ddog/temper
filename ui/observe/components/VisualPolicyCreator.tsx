@@ -15,12 +15,18 @@ import PermissionsMatrix, {
   type PermissionsSelection,
 } from "./PermissionsMatrix";
 import { PRINCIPAL_OPTIONS, DURATION_OPTIONS } from "@/lib/policy-options";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface VisualPolicyCreatorProps {
   specs: SpecSummary[];
   tenants: string[];
   onCreated: (tenant: string, policyId: string, cedarText: string) => Promise<void>;
   onCancel: () => void;
+  open?: boolean;
 }
 
 /** Generate Cedar text for one permission entry */
@@ -105,6 +111,7 @@ export default function VisualPolicyCreator({
   tenants,
   onCreated,
   onCancel,
+  open,
 }: VisualPolicyCreatorProps) {
   const [principal, setPrincipal] = useState<PrincipalScope>("any_agent");
   const [duration, setDuration] = useState<DurationScope>("always");
@@ -189,152 +196,176 @@ export default function VisualPolicyCreator({
     }
   }, [selectedTenant, policyCount, generatedPolicies, onCreated]);
 
-  return (
-    <div className="glass rounded p-4 mb-6 animate-fade-in">
-      <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-4">
-        Create Policies
-      </h3>
-
-      <div className="space-y-4">
-        {/* Tenant selector */}
-        <div>
-          <div className="text-[10px] text-[var(--color-text-secondary)] uppercase tracking-wider font-medium mb-1.5">
-            Tenant
-          </div>
-          <select
-            value={selectedTenant}
-            onChange={(e) => setSelectedTenant(e.target.value)}
-            className="bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] text-xs rounded-sm px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-teal)]"
-          >
+  const content = (
+    <div className="space-y-4">
+      {/* Tenant selector */}
+      <div>
+        <div className="text-[10px] text-[var(--color-text-secondary)] uppercase tracking-wider font-medium mb-1.5">
+          Tenant
+        </div>
+        <Select value={selectedTenant} onValueChange={setSelectedTenant}>
+          <SelectTrigger className="rounded-[2px] bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] text-xs h-7 w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="rounded-[2px]">
             {tenants.map((t) => (
-              <option key={t} value={t}>{t}</option>
+              <SelectItem key={t} value={t}>{t}</SelectItem>
             ))}
-          </select>
-        </div>
+          </SelectContent>
+        </Select>
+      </div>
 
-        {/* WHO — principal scope */}
-        <div>
-          <RadioGroup
-            label="Allow who"
-            options={PRINCIPAL_OPTIONS}
-            value={principal}
-            onChange={setPrincipal}
-          />
-          {principal === "this_agent" && (
-            <div className="mt-2">
-              <select
-                value={selectedAgentId}
-                onChange={(e) => setSelectedAgentId(e.target.value)}
-                className="bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] text-xs rounded-sm px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-teal)]"
-              >
-                <option value="">Select agent...</option>
-                {agents.map((a) => (
-                  <option key={a.agent_id} value={a.agent_id}>{a.agent_id}</option>
-                ))}
-              </select>
-              {agents.length === 0 && (
-                <span className="text-[10px] text-[var(--color-text-muted)] ml-2">
-                  No agents found for this tenant
-                </span>
-              )}
-            </div>
-          )}
-          {principal === "agents_of_type" && (
-            <div className="mt-2">
-              <input
-                type="text"
-                value={agentTypeInput}
-                onChange={(e) => setAgentTypeInput(e.target.value)}
-                placeholder="e.g., claude-code"
-                className="bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] text-xs rounded-sm px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-teal)] placeholder:text-[var(--color-text-muted)] w-48"
-              />
-            </div>
-          )}
-          {principal === "agents_with_role" && (
-            <div className="mt-2">
-              <input
-                type="text"
-                value={agentTypeInput}
-                onChange={(e) => setAgentTypeInput(e.target.value)}
-                placeholder="e.g., operations_agent"
-                className="bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] text-xs rounded-sm px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-teal)] placeholder:text-[var(--color-text-muted)] w-48"
-              />
-            </div>
-          )}
-        </div>
-
-        {/* PERMISSIONS MATRIX */}
-        <PermissionsMatrix
-          specs={specs}
-          tenant={selectedTenant}
-          value={permissions}
-          onChange={setPermissions}
-        />
-
-        {/* DURATION */}
+      {/* WHO — principal scope */}
+      <div>
         <RadioGroup
-          label="For how long"
-          options={DURATION_OPTIONS}
-          value={duration}
-          onChange={setDuration}
+          label="Allow who"
+          options={PRINCIPAL_OPTIONS}
+          value={principal}
+          onChange={setPrincipal}
         />
-
-        {/* Cedar preview */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowCedar(!showCedar)}
-            className="text-[10px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] uppercase tracking-wider"
-          >
-            {showCedar ? "Hide" : "Show"} Cedar preview ({policyCount} {policyCount === 1 ? "policy" : "policies"})
-          </button>
-          {showCedar && generatedPolicies.length > 0 && (
-            <div className="mt-1.5 space-y-2">
-              {generatedPolicies.map((p) => (
-                <div key={p.id}>
-                  <div className="text-[10px] font-mono text-[var(--color-text-muted)] mb-0.5">
-                    {p.id}
-                  </div>
-                  <pre className="p-2.5 bg-black/30 rounded text-[11px] text-[var(--color-accent-teal)] font-mono overflow-x-auto border border-[var(--color-border)]">
-                    {p.cedar}
-                  </pre>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="text-xs text-[var(--color-accent-pink)]">{error}</div>
-        )}
-
-        {/* Result */}
-        {result && (
-          <div className={`text-xs font-mono ${result.failed > 0 ? "text-[var(--color-accent-pink)]" : "text-[var(--color-accent-teal)]"}`}>
-            {result.succeeded} created{result.failed > 0 ? `, ${result.failed} failed` : ""}
+        {principal === "this_agent" && (
+          <div className="mt-2">
+            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+              <SelectTrigger className="rounded-[2px] bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] text-xs h-7 w-56 font-mono">
+                <SelectValue placeholder="Select agent..." />
+              </SelectTrigger>
+              <SelectContent className="rounded-[2px]">
+                {agents.map((a) => (
+                  <SelectItem key={a.agent_id} value={a.agent_id}>{a.agent_id}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {agents.length === 0 && (
+              <span className="text-[10px] text-[var(--color-text-muted)] ml-2">
+                No agents found for this tenant
+              </span>
+            )}
           </div>
         )}
+        {principal === "agents_of_type" && (
+          <div className="mt-2">
+            <Input
+              type="text"
+              value={agentTypeInput}
+              onChange={(e) => setAgentTypeInput(e.target.value)}
+              placeholder="e.g., claude-code"
+              className="rounded-[2px] bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] text-xs px-2.5 py-1.5 font-mono placeholder:text-[var(--color-text-muted)] w-48 h-auto"
+            />
+          </div>
+        )}
+        {principal === "agents_with_role" && (
+          <div className="mt-2">
+            <Input
+              type="text"
+              value={agentTypeInput}
+              onChange={(e) => setAgentTypeInput(e.target.value)}
+              placeholder="e.g., operations_agent"
+              className="rounded-[2px] bg-[var(--color-bg-surface)] text-[var(--color-text-primary)] text-xs px-2.5 py-1.5 font-mono placeholder:text-[var(--color-text-muted)] w-48 h-auto"
+            />
+          </div>
+        )}
+      </div>
 
-        {/* Actions */}
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            disabled={creating || !selectedTenant || policyCount === 0}
-            onClick={handleCreate}
-            className="px-3 py-1.5 text-xs bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] rounded hover:bg-[var(--color-accent-teal-dim)] disabled:opacity-50 transition-colors"
-          >
-            {creating ? "Creating..." : `Create ${policyCount} ${policyCount === 1 ? "policy" : "policies"}`}
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-3 py-1.5 text-xs bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded hover:bg-[var(--color-border)] transition-colors"
-          >
-            Cancel
-          </button>
+      {/* PERMISSIONS MATRIX */}
+      <PermissionsMatrix
+        specs={specs}
+        tenant={selectedTenant}
+        value={permissions}
+        onChange={setPermissions}
+      />
+
+      {/* DURATION */}
+      <RadioGroup
+        label="For how long"
+        options={DURATION_OPTIONS}
+        value={duration}
+        onChange={setDuration}
+      />
+
+      {/* Cedar preview */}
+      <div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowCedar(!showCedar)}
+          className="rounded-[2px] text-[10px] h-auto text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] uppercase tracking-wider px-0"
+        >
+          {showCedar ? "Hide" : "Show"} Cedar preview ({policyCount} {policyCount === 1 ? "policy" : "policies"})
+        </Button>
+        {showCedar && generatedPolicies.length > 0 && (
+          <div className="mt-1.5 space-y-2">
+            {generatedPolicies.map((p) => (
+              <div key={p.id}>
+                <div className="text-[10px] font-mono text-[var(--color-text-muted)] mb-0.5">
+                  {p.id}
+                </div>
+                <pre className="p-2.5 bg-black/30 rounded-[2px] text-[11px] text-[var(--color-accent-teal)] font-mono overflow-x-auto border border-[var(--color-border)]">
+                  {p.cedar}
+                </pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="text-xs text-[var(--color-accent-pink)]">{error}</div>
+      )}
+
+      {/* Result */}
+      {result && (
+        <div className={`text-xs font-mono ${result.failed > 0 ? "text-[var(--color-accent-pink)]" : "text-[var(--color-accent-teal)]"}`}>
+          {result.succeeded} created{result.failed > 0 ? `, ${result.failed} failed` : ""}
         </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 pt-1">
+        <Button
+          type="button"
+          disabled={creating || !selectedTenant || policyCount === 0}
+          onClick={handleCreate}
+          className="rounded-[2px] px-3 py-1.5 text-xs h-auto bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] hover:bg-[var(--color-accent-teal-dim)] disabled:opacity-50 transition-colors"
+        >
+          {creating ? "Creating..." : `Create ${policyCount} ${policyCount === 1 ? "policy" : "policies"}`}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onCancel}
+          className="rounded-[2px] px-3 py-1.5 text-xs h-auto bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] transition-colors"
+        >
+          Cancel
+        </Button>
       </div>
     </div>
+  );
+
+  if (open !== undefined) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel(); }}>
+        <DialogContent className="rounded-[2px] max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold text-[var(--color-text-primary)]">
+              Create Policies
+            </DialogTitle>
+          </DialogHeader>
+          {content}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Card className="glass rounded-[2px] border-0 gap-0 mb-6 animate-fade-in">
+      <CardContent className="p-4">
+        <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-4">
+          Create Policies
+        </h3>
+        {content}
+      </CardContent>
+    </Card>
   );
 }

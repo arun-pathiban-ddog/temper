@@ -7,26 +7,28 @@ import { fetchEntityHistory } from "@/lib/api";
 import type { EntityHistory } from "@/lib/types";
 import EntityTimeline from "@/components/EntityTimeline";
 import ErrorDisplay from "@/components/ErrorDisplay";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
 
 function EntitySkeleton() {
   return (
-    <div className="animate-pulse">
-      <div className="h-3.5 bg-[var(--color-border)] rounded w-56 mb-1.5" />
-      <div className="h-6 bg-[var(--color-border)] rounded w-44 mb-5" />
-      <div className="glass rounded p-5 mb-6">
+    <div>
+      <Skeleton className="h-3.5 w-56 rounded-[2px] mb-1.5" />
+      <Skeleton className="h-6 w-44 rounded-[2px] mb-5" />
+      <Card className="glass rounded-[2px] border-0 gap-0 mb-6">
         <div className="grid grid-cols-3 gap-5">
           {[0, 1, 2].map((i) => (
             <div key={i}>
-              <div className="h-3 bg-[var(--color-border)] rounded w-16 mb-1.5" />
-              <div className="h-4 bg-[var(--color-border)] rounded w-24" />
+              <Skeleton className="h-3 w-16 rounded-[2px] mb-1.5" />
+              <Skeleton className="h-4 w-24 rounded-[2px]" />
             </div>
           ))}
         </div>
-      </div>
-      <div className="h-4 bg-[var(--color-border)] rounded w-32 mb-3" />
+      </Card>
+      <Skeleton className="h-4 w-32 rounded-[2px] mb-3" />
       <div className="space-y-2.5">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-16 glass rounded" />
+          <Skeleton key={i} className="h-16 rounded-[2px]" />
         ))}
       </div>
     </div>
@@ -100,7 +102,8 @@ export default function EntityInspector() {
       </div>
 
       {/* Current state card */}
-      <div className="glass rounded p-5 mb-6">
+      <Card className="glass rounded-[2px] border-0 gap-0 mb-6">
+        <CardContent className="p-5">
         <div className="grid grid-cols-3 gap-5">
           <div>
             <div className="text-[11px] text-[var(--color-text-muted)] mb-1 uppercase tracking-wider">Entity Type</div>
@@ -119,13 +122,14 @@ export default function EntityInspector() {
             </div>
           </div>
         </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Properties */}
       {(history.fields || history.counters || history.booleans || history.lists) && (
         <div className="mb-6">
           <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-3 tracking-tight">Properties</h2>
-          <div className="glass rounded overflow-hidden">
+          <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
             {/* Fields */}
             {history.fields && Object.keys(history.fields).length > 0 && (
               <div className="px-4 py-3 border-b border-[var(--color-border)]">
@@ -192,7 +196,7 @@ export default function EntityInspector() {
                 </div>
               </div>
             )}
-          </div>
+          </Card>
         </div>
       )}
 
