@@ -39,9 +39,9 @@ function AppCard({ workflow, onDelete }: { workflow: AppWorkflow; onDelete: (ten
   );
 
   return (
-    <Card className="rounded-[2px] border-[var(--color-border)] gap-0 group overflow-hidden">
+    <Card className="rounded-[2px] border-[var(--color-border)] bg-[var(--color-bg-surface)] hover:bg-[var(--color-bg-elevated)] gap-0 group overflow-hidden transition-colors">
       <Link href={`/workflows/${workflow.tenant}`} className="block">
-        <CardContent className="p-5 hover:bg-[var(--color-bg-elevated)] transition-colors">
+        <CardContent className="p-5">
           <div className="flex items-center justify-between mb-2.5">
             <h3 className="text-base font-semibold text-[var(--color-text-primary)] tracking-tight">{workflow.tenant}</h3>
             <div className="flex items-center gap-2">
