@@ -17,8 +17,8 @@ import {
   RESOURCE_OPTIONS,
   DURATION_OPTIONS,
 } from "@/lib/policy-options";
+import { Button } from "@/components/ui/button";
 
-/** Context derived from a decision or provided explicitly for standalone mode. */
 export interface PolicyBuilderContext {
   agentId?: string;
   agentType?: string;
@@ -51,7 +51,6 @@ type PolicyBuilderProps = DecisionModeProps | StandaloneModeProps;
 export default function PolicyBuilder(props: PolicyBuilderProps) {
   const { onApprove, disabled } = props;
 
-  // Normalize context from either decision or explicit context
   const ctx: PolicyBuilderContext = useMemo(() => {
     if (props.decision) {
       return {
@@ -66,7 +65,6 @@ export default function PolicyBuilder(props: PolicyBuilderProps) {
     return props.context;
   }, [props.decision, props.context]);
 
-  // Default to broader scopes in standalone mode when fields are missing
   const defaultPrincipal: PrincipalScope = ctx.agentId ? "this_agent" : "any_agent";
   const defaultAction: ActionScopeOption = ctx.action ? "this_action" : "all_actions";
   const defaultResource: ResourceScopeOption = ctx.resourceType ? "any_of_type" : "any_resource";
@@ -101,14 +99,7 @@ export default function PolicyBuilder(props: PolicyBuilderProps) {
   }), [principal, action, resource, duration, ctx.agentType, ctx.sessionId]);
 
   const preview = useMemo(
-    () =>
-      generatePolicyPreview(
-        ctx.agentId || "agent",
-        ctx.action || "*",
-        ctx.resourceType || "Resource",
-        ctx.resourceId || "*",
-        matrix,
-      ),
+    () => generatePolicyPreview(ctx.agentId || "agent", ctx.action || "*", ctx.resourceType || "Resource", ctx.resourceId || "*", matrix),
     [ctx, matrix],
   );
 
@@ -119,50 +110,53 @@ export default function PolicyBuilder(props: PolicyBuilderProps) {
       <RadioGroup label="Which resource" options={RESOURCE_OPTIONS} value={resource} onChange={setResource} />
       <RadioGroup label="How long" options={durationOptions} value={duration} onChange={setDuration} />
 
-      {/* Cedar preview */}
       <div>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => setShowPreview(!showPreview)}
-          className="text-[10px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-secondary)] uppercase tracking-wider"
+          className="h-auto p-0 text-[10px] text-[var(--color-text-secondary)] uppercase tracking-wider"
         >
           {showPreview ? "Hide" : "Show"} Cedar preview
-        </button>
+        </Button>
         {showPreview && (
-          <pre className="mt-1.5 p-2 bg-black/30 rounded text-[11px] text-[var(--color-accent-teal)] font-mono overflow-x-auto opacity-80">
+          <pre className="mt-1.5 p-2 bg-black/30 rounded-[2px] text-[11px] text-[var(--color-accent-teal)] font-mono overflow-x-auto opacity-80">
             {preview}
           </pre>
         )}
       </div>
 
-      {/* Actions */}
       <div className="flex gap-2 pt-1">
-        <button
-          type="button"
+        <Button
+          size="sm"
           disabled={disabled}
           onClick={() => onApprove(matrix)}
-          className="px-3 py-1.5 text-xs bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] rounded hover:bg-[var(--color-accent-teal-dim)] disabled:opacity-50 transition-colors"
+          className="rounded-[2px] text-xs bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent hover:bg-[var(--color-accent-teal-dim)]"
+          variant="outline"
         >
           Approve
-        </button>
+        </Button>
         {props.decision ? (
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="destructive"
             disabled={disabled}
             onClick={props.onDeny}
-            className="px-3 py-1.5 text-xs bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] rounded hover:bg-[var(--color-accent-pink-dim)] disabled:opacity-50 transition-colors"
+            className="rounded-[2px] text-xs"
           >
             Deny
-          </button>
+          </Button>
         ) : (
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="secondary"
             disabled={disabled}
             onClick={props.onCancel}
-            className="px-3 py-1.5 text-xs bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)] rounded hover:bg-[var(--color-border)] disabled:opacity-50 transition-colors"
+            className="rounded-[2px] text-xs"
           >
             Cancel
-          </button>
+          </Button>
         )}
       </div>
     </div>

@@ -19,6 +19,12 @@ import type {
   EvolutionRecordDetail,
 } from "@/lib/types";
 import ErrorDisplay from "@/components/ErrorDisplay";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const recordTypeColors: Record<string, string> = {
   Observation: "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]",
@@ -152,12 +158,13 @@ function ExpandableRecord({ record }: { record: EvolutionRecord }) {
 
   return (
     <div>
-      <button
+      <Button
+        variant="ghost"
         onClick={handleExpand}
-        className="w-full flex items-center gap-3 px-3.5 py-2.5 border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-bg-elevated)] transition-colors text-left"
+        className="rounded-[2px] w-full flex items-center gap-3 px-3.5 py-2.5 border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-bg-elevated)] transition-colors text-left h-auto justify-start"
       >
         <span className="text-[10px] text-[var(--color-text-muted)] flex-shrink-0">{expanded ? "▼" : "▶"}</span>
-        <span className={`text-xs font-medium px-1.5 py-0.5 rounded flex-shrink-0 ${recordTypeColors[record.record_type] ?? "bg-[var(--color-accent-lime-dim)] text-[var(--color-text-secondary)]"}`}>
+        <span className={`text-xs font-medium px-1.5 py-0.5 rounded-[2px] flex-shrink-0 ${recordTypeColors[record.record_type] ?? "bg-[var(--color-accent-lime-dim)] text-[var(--color-text-secondary)]"}`}>
           {record.record_type}
         </span>
         <span className="text-xs text-[var(--color-text-secondary)] font-mono flex-shrink-0">{record.id?.slice(0, 12) ?? "—"}</span>
@@ -167,12 +174,12 @@ function ExpandableRecord({ record }: { record: EvolutionRecord }) {
         {record.recommendation && (
           <span className="text-xs text-[var(--color-text-secondary)] truncate">{record.recommendation}</span>
         )}
-        <span className={`text-xs px-1.5 py-0.5 rounded ml-auto flex-shrink-0 ${
+        <span className={`text-xs px-1.5 py-0.5 rounded-[2px] ml-auto flex-shrink-0 ${
           record.status === "active" || record.status === "Open" ? "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]" : "bg-[var(--color-accent-lime-dim)] text-[var(--color-text-secondary)]"
         }`}>
           {record.status}
         </span>
-      </button>
+      </Button>
       {expanded && (
         loading ? (
           <div className="px-4 py-3 bg-[color-mix(in_srgb,var(--color-bg-surface)_50%,transparent)] border-t border-[var(--color-border)]">
@@ -257,15 +264,17 @@ export default function EvolutionPage() {
 
   if (initialLoading) {
     return (
-      <div className="animate-pulse">
-        <div className="h-6 bg-[var(--color-border)] rounded w-36 mb-1.5" />
-        <div className="h-3.5 bg-[var(--color-border)] rounded w-64 mb-6" />
+      <div>
+        <Skeleton className="h-6 w-36 rounded-[2px] mb-1.5" />
+        <Skeleton className="h-3.5 w-64 rounded-[2px] mb-6" />
         <div className="grid grid-cols-5 gap-3 mb-6">
           {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="glass rounded-[2px] p-4">
-              <div className="h-3 bg-[var(--color-border)] rounded w-20 mb-2" />
-              <div className="h-8 bg-[var(--color-border)] rounded w-10" />
-            </div>
+            <Card key={i} className="glass rounded-[2px] border-0 gap-0">
+              <CardContent className="p-4">
+                <Skeleton className="h-3 w-20 rounded-[2px] mb-2" />
+                <Skeleton className="h-8 w-10 rounded-[2px]" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
@@ -340,12 +349,14 @@ export default function EvolutionPage() {
       {/* Record Summary */}
       <div className="grid grid-cols-5 gap-3 mb-6">
         {summaryCards.map((card) => (
-          <div key={card.label} className="glass rounded-[2px] p-4">
-            <div className="text-xs text-[var(--color-text-muted)]">{card.label}</div>
-            <div className={`text-4xl font-bold font-mono mt-0.5 ${card.color}`}>
-              {card.value}
-            </div>
-          </div>
+          <Card key={card.label} className="rounded-[2px] border-[var(--color-border)] gap-0">
+            <CardContent className="p-4">
+              <div className="text-xs text-[var(--color-text-muted)]">{card.label}</div>
+              <div className={`text-4xl font-bold font-mono mt-0.5 ${card.color}`}>
+                {card.value}
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
@@ -353,9 +364,11 @@ export default function EvolutionPage() {
       <div className="mb-6">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-3 tracking-tight">Insights</h2>
         {!insights || insights.insights.length === 0 ? (
-          <div className="glass rounded-[2px] p-6 text-center">
-            <p className="text-sm text-[var(--color-text-secondary)]">No insights yet. Run a sentinel check or wait for trajectory patterns.</p>
-          </div>
+          <Card className="glass rounded-[2px] border-0 gap-0">
+            <CardContent className="p-6 text-center">
+              <p className="text-sm text-[var(--color-text-secondary)]">No insights yet. Run a sentinel check or wait for trajectory patterns.</p>
+            </CardContent>
+          </Card>
         ) : (
           <div className="space-y-2">
             {insights.insights
@@ -363,31 +376,33 @@ export default function EvolutionPage() {
               .map((insight) => {
                 const badge = priorityBadge(insight.priority_score);
                 return (
-                  <div
+                  <Card
                     key={insight.id}
-                    className="bg-[var(--color-bg-surface)] rounded-[2px] p-3.5"
+                    className="rounded-[2px] border-[var(--color-border)] gap-0"
                   >
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${recordTypeColors.Insight ?? "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]"}`}>
-                        {insight.category}
-                      </span>
-                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${badge.bg}`}>
-                        {badge.label}
-                      </span>
-                      <span className="text-xs font-mono text-[var(--color-text-muted)] ml-auto">
-                        {insight.priority_score.toFixed(2)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-[var(--color-text-secondary)] mb-2">{insight.recommendation}</p>
-                    <div className="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
-                      <span>Intent: <span className="text-[var(--color-text-secondary)] font-mono">{insight.signal.intent}</span></span>
-                      <span>Vol: <span className="text-[var(--color-text-secondary)] font-mono">{insight.signal.volume}</span></span>
-                      <span>Rate: <span className="text-[var(--color-text-secondary)] font-mono">{Math.round(insight.signal.success_rate * 100)}%</span></span>
-                      <span className="flex items-center gap-1">
-                        Trend: <TrendArrow trend={insight.signal.trend} />
-                      </span>
-                    </div>
-                  </div>
+                    <CardContent className="p-3.5">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${recordTypeColors.Insight ?? "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]"}`}>
+                          {insight.category}
+                        </span>
+                        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${badge.bg}`}>
+                          {badge.label}
+                        </span>
+                        <span className="text-xs font-mono text-[var(--color-text-muted)] ml-auto">
+                          {insight.priority_score.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[var(--color-text-secondary)] mb-2">{insight.recommendation}</p>
+                      <div className="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
+                        <span>Intent: <span className="text-[var(--color-text-secondary)] font-mono">{insight.signal.intent}</span></span>
+                        <span>Vol: <span className="text-[var(--color-text-secondary)] font-mono">{insight.signal.volume}</span></span>
+                        <span>Rate: <span className="text-[var(--color-text-secondary)] font-mono">{Math.round(insight.signal.success_rate * 100)}%</span></span>
+                        <span className="flex items-center gap-1">
+                          Trend: <TrendArrow trend={insight.signal.trend} />
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
                 );
               })}
           </div>
@@ -405,40 +420,44 @@ export default function EvolutionPage() {
           )}
         </div>
         {!unmetIntents || unmetIntents.intents.length === 0 ? (
-          <div className="glass rounded-[2px] p-6 text-center">
-            <p className="text-sm text-[var(--color-text-secondary)]">No unmet intents detected. The system is meeting all agent needs.</p>
-          </div>
+          <Card className="glass rounded-[2px] border-0 gap-0">
+            <CardContent className="p-6 text-center">
+              <p className="text-sm text-[var(--color-text-secondary)]">No unmet intents detected. The system is meeting all agent needs.</p>
+            </CardContent>
+          </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {unmetIntents.intents.map((intent, i) => (
-              <div
+              <Card
                 key={`${intent.entity_type}-${intent.error_pattern}-${i}`}
-                className={`bg-[var(--color-bg-surface)] rounded-[2px] p-3.5 ${
-                  intent.status === "open" ? "border-l-2 border-[var(--color-accent-pink)]/50" : "border-l-2 border-[var(--color-accent-teal)]/30"
+                className={`rounded-[2px] border-[var(--color-border)] gap-0 ${
+                  intent.status === "open" ? "border-l-2 border-l-[var(--color-accent-pink)]/50" : "border-l-2 border-l-[var(--color-accent-teal)]/30"
                 }`}
               >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm font-medium text-[var(--color-text-primary)]">{intent.entity_type}</span>
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                    errorPatternColors[intent.error_pattern] ?? errorPatternColors.Other
-                  }`}>
-                    {intent.error_pattern}
-                  </span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ml-auto ${
-                    intent.status === "open"
-                      ? "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]"
-                      : "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]"
-                  }`}>
-                    {intent.status}
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--color-text-secondary)] mb-2">{intent.recommendation}</p>
-                <div className="flex items-center gap-4 text-[10px] text-[var(--color-text-muted)]">
-                  <span>Failures: <span className="text-[var(--color-text-secondary)] font-mono">{intent.failure_count}</span></span>
-                  <span>First: <span className="text-[var(--color-text-secondary)] font-mono">{intent.first_seen?.slice(0, 10) ?? "—"}</span></span>
-                  <span>Last: <span className="text-[var(--color-text-secondary)] font-mono">{intent.last_seen?.slice(0, 10) ?? "—"}</span></span>
-                </div>
-              </div>
+                <CardContent className="p-3.5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-medium text-[var(--color-text-primary)]">{intent.entity_type}</span>
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                      errorPatternColors[intent.error_pattern] ?? errorPatternColors.Other
+                    }`}>
+                      {intent.error_pattern}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ml-auto ${
+                      intent.status === "open"
+                        ? "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)]"
+                        : "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)]"
+                    }`}>
+                      {intent.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--color-text-secondary)] mb-2">{intent.recommendation}</p>
+                  <div className="flex items-center gap-4 text-[10px] text-[var(--color-text-muted)]">
+                    <span>Failures: <span className="text-[var(--color-text-secondary)] font-mono">{intent.failure_count}</span></span>
+                    <span>First: <span className="text-[var(--color-text-secondary)] font-mono">{intent.first_seen?.slice(0, 10) ?? "—"}</span></span>
+                    <span>Last: <span className="text-[var(--color-text-secondary)] font-mono">{intent.last_seen?.slice(0, 10) ?? "—"}</span></span>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         )}
@@ -446,34 +465,34 @@ export default function EvolutionPage() {
 
       {/* Records with tab filter */}
       <div className="mb-6">
-        <div className="flex items-center gap-4 mb-3">
-          <h2 className="text-base font-semibold text-[var(--color-text-primary)] tracking-tight">Records</h2>
-          <div className="flex gap-1">
+        <h2 className="text-base font-semibold text-[var(--color-text-primary)] tracking-tight mb-3">Records</h2>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as RecordTab)}>
+          <TabsList className="rounded-none border-b border-[var(--color-border)] bg-transparent h-auto p-0 w-full justify-start gap-1 mb-3">
             {(["all", "observations", "problems", "analyses", "decisions", "insights"] as const).map((tab) => (
-              <button
+              <TabsTrigger
                 key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`text-xs px-2 py-1 rounded transition-colors ${
-                  activeTab === tab
-                    ? "text-[var(--color-accent-teal)] border-b-2 border-[var(--color-accent-teal)]"
-                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-                }`}
+                value={tab}
+                className="rounded-none border-0 border-b-2 -mb-px px-3 py-2 text-xs data-[state=active]:border-[var(--color-accent-teal)] data-[state=active]:text-[var(--color-accent-teal)] data-[state=inactive]:border-transparent data-[state=inactive]:text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] bg-transparent shadow-none"
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
+              </TabsTrigger>
             ))}
-          </div>
-        </div>
+          </TabsList>
+        </Tabs>
         {filteredRecords.length === 0 ? (
-          <div className="glass rounded-[2px] p-6 text-center">
-            <p className="text-sm text-[var(--color-text-secondary)]">No records found.</p>
-          </div>
+          <Card className="glass rounded-[2px] border-0 gap-0">
+            <CardContent className="p-6 text-center">
+              <p className="text-sm text-[var(--color-text-secondary)]">No records found.</p>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="glass rounded-[2px] overflow-hidden max-h-96 overflow-y-auto">
-            {filteredRecords.map((record) => (
-              <ExpandableRecord key={record.id} record={record} />
-            ))}
-          </div>
+          <Card className="glass rounded-[2px] border-0 gap-0 overflow-hidden">
+            <ScrollArea className="max-h-96">
+              {filteredRecords.map((record) => (
+                <ExpandableRecord key={record.id} record={record} />
+              ))}
+            </ScrollArea>
+          </Card>
         )}
       </div>
 
@@ -481,18 +500,20 @@ export default function EvolutionPage() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-semibold text-[var(--color-text-primary)] tracking-tight">Sentinel Health Check</h2>
-          <button
+          <Button
             onClick={handleSentinelCheck}
             disabled={sentinelLoading}
-            className="px-3 py-1.5 bg-[var(--color-accent-teal)] hover:bg-[var(--color-accent-teal)] disabled:bg-[var(--color-accent-teal)]/50 text-[var(--color-bg-primary)] text-xs rounded-[2px] transition-colors"
+            className="rounded-[2px] px-3 py-1.5 bg-[var(--color-accent-teal)] hover:bg-[var(--color-accent-teal)] disabled:bg-[var(--color-accent-teal)]/50 text-[var(--color-bg-primary)] text-xs h-auto transition-colors"
           >
             {sentinelLoading ? "Checking..." : "Run Health Check"}
-          </button>
+          </Button>
         </div>
         {sentinelResult === null ? (
-          <div className="glass rounded-[2px] p-6 text-center">
-            <p className="text-sm text-[var(--color-text-secondary)]">Click &quot;Run Health Check&quot; to check system health and generate insights.</p>
-          </div>
+          <Card className="glass rounded-[2px] border-0 gap-0">
+            <CardContent className="p-6 text-center">
+              <p className="text-sm text-[var(--color-text-secondary)]">Click &quot;Run Health Check&quot; to check system health and generate insights.</p>
+            </CardContent>
+          </Card>
         ) : sentinelResult.alerts_count === 0 && sentinelResult.insights_count === 0 ? (
           <div className="bg-[var(--color-accent-teal-dim)] rounded-[2px] p-4 flex items-center gap-3">
             <svg className="w-5 h-5 text-[var(--color-accent-teal)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -503,30 +524,35 @@ export default function EvolutionPage() {
         ) : (
           <div className="space-y-2">
             {sentinelResult.alerts.map((alert, i) => (
-              <div
+              <Alert
                 key={`${alert.rule}-${i}`}
-                className="bg-[var(--color-accent-pink-dim)] rounded-[2px] p-3.5 animate-pulse-once"
+                variant="destructive"
+                className="rounded-[2px] bg-[var(--color-accent-pink-dim)] border-[var(--color-accent-pink)]/20 animate-pulse-once"
               >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className="w-2 h-2 bg-[var(--color-accent-pink)] rounded-full animate-pulse" />
-                  <span className="text-sm font-medium text-[var(--color-accent-pink)]">{alert.rule}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ml-auto ${recordTypeColors[alert.classification] ?? "bg-[var(--color-accent-lime-dim)] text-[var(--color-text-secondary)]"}`}>
-                    {alert.classification}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
-                  <span>Source: <span className="text-[var(--color-text-secondary)] font-mono">{alert.source}</span></span>
-                  <span>Threshold: <span className="text-[var(--color-text-secondary)] font-mono">{alert.threshold}</span></span>
-                  <span>Observed: <span className="text-[var(--color-accent-pink)] font-mono">{alert.observed}</span></span>
-                </div>
-              </div>
+                <AlertDescription>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-2 h-2 bg-[var(--color-accent-pink)] rounded-full animate-pulse" />
+                    <span className="text-sm font-medium text-[var(--color-accent-pink)]">{alert.rule}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ml-auto ${recordTypeColors[alert.classification] ?? "bg-[var(--color-accent-lime-dim)] text-[var(--color-text-secondary)]"}`}>
+                      {alert.classification}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
+                    <span>Source: <span className="text-[var(--color-text-secondary)] font-mono">{alert.source}</span></span>
+                    <span>Threshold: <span className="text-[var(--color-text-secondary)] font-mono">{alert.threshold}</span></span>
+                    <span>Observed: <span className="text-[var(--color-accent-pink)] font-mono">{alert.observed}</span></span>
+                  </div>
+                </AlertDescription>
+              </Alert>
             ))}
             {sentinelResult.insights_count > 0 && (
-              <div className="bg-[var(--color-accent-pink-dim)] rounded-[2px] p-3.5">
-                <span className="text-xs text-[var(--color-accent-pink)]">
-                  Generated {sentinelResult.insights_count} new insight{sentinelResult.insights_count !== 1 ? "s" : ""} from trajectory analysis
-                </span>
-              </div>
+              <Alert className="rounded-[2px] bg-[var(--color-accent-pink-dim)] border-[var(--color-accent-pink)]/20">
+                <AlertDescription>
+                  <span className="text-xs text-[var(--color-accent-pink)]">
+                    Generated {sentinelResult.insights_count} new insight{sentinelResult.insights_count !== 1 ? "s" : ""} from trajectory analysis
+                  </span>
+                </AlertDescription>
+              </Alert>
             )}
           </div>
         )}

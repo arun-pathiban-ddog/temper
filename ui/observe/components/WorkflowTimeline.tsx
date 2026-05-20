@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { WorkflowStep, VerificationDetail } from "@/lib/types";
 import { VerificationDetailsPanel } from "@/components/CascadeResults";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 const STEP_LABELS: Record<string, string> = {
   loaded: "Spec Loaded",
@@ -105,10 +107,11 @@ export default function WorkflowTimeline({ steps, stepDetails }: WorkflowTimelin
               </div>
 
               {/* Step content */}
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => step.summary && toggle(i)}
-                className={`flex-1 text-left rounded-[2px] p-2 min-w-0 transition-colors ${
-                  step.summary ? "hover:bg-[var(--color-bg-elevated)] cursor-pointer" : "cursor-default"
+                className={`flex-1 justify-start h-auto rounded-[2px] p-2 min-w-0 ${
+                  step.summary ? "cursor-pointer" : "cursor-default pointer-events-none"
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -145,7 +148,7 @@ export default function WorkflowTimeline({ steps, stepDetails }: WorkflowTimelin
                     {step.summary}
                   </div>
                 )}
-              </button>
+              </Button>
 
               {/* Verification detail panel for failed steps */}
               {isExpanded && step.passed === false && stepDetails?.[step.step] && (

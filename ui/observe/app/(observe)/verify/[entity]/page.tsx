@@ -7,6 +7,8 @@ import { runVerification, fetchVerificationStatus, subscribeDesignTimeEvents } f
 import type { VerificationResult, DesignTimeEvent } from "@/lib/types";
 import CascadeResults from "@/components/CascadeResults";
 import ErrorDisplay from "@/components/ErrorDisplay";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 
 type StepStatus = "pending" | "running" | "passed" | "failed";
 
@@ -166,19 +168,17 @@ export default function VerificationPage() {
           >
             View Spec
           </Link>
-          <button
-            onClick={handleRunVerification}
-            disabled={loading}
-            className="px-3.5 py-1.5 bg-[var(--color-accent-teal)] hover:bg-[var(--color-accent-teal)] disabled:bg-[var(--color-accent-teal)]/50 disabled:cursor-not-allowed text-[var(--color-bg-primary)] text-[13px] rounded-[2px] transition-colors"
-          >
+          <Button onClick={handleRunVerification} disabled={loading}
+            className="px-3.5 py-1.5 bg-[var(--color-accent-teal)] text-[var(--color-bg-primary)] text-[13px] rounded-[2px] disabled:opacity-50">
             {loading ? "Running..." : result ? "Re-run Verification" : "Run Verification"}
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Stepper Progress */}
       {(loading || hasAnyProgress) && (
-        <div className="glass rounded-[2px] p-5 mb-5">
+        <Card className="glass rounded-[2px] border-0 gap-0 mb-5">
+          <CardContent className="p-5">
           <div className="flex items-center gap-1">
             {steps.map((step, i) => (
               <div key={step.label} className="flex items-center flex-1 last:flex-initial">
@@ -238,7 +238,8 @@ export default function VerificationPage() {
               </div>
             ))}
           </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Error state */}
@@ -271,12 +272,10 @@ export default function VerificationPage() {
             </svg>
           </div>
           <p className="text-[var(--color-text-secondary)] text-[13px] mb-3">Click &quot;Run Verification&quot; to start the cascade</p>
-          <button
-            onClick={handleRunVerification}
-            className="px-3.5 py-1.5 bg-[var(--color-accent-teal)] hover:bg-[var(--color-accent-teal)] text-[var(--color-bg-primary)] text-[13px] rounded-[2px] transition-colors"
-          >
+          <Button onClick={handleRunVerification}
+            className="px-3.5 py-1.5 bg-[var(--color-accent-teal)] text-[var(--color-bg-primary)] text-[13px] rounded-[2px]">
             Run Verification
-          </button>
+          </Button>
         </div>
       )}
 

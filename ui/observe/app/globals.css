@@ -1,4 +1,27 @@
 @import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background:              var(--background);
+  --color-foreground:              var(--foreground);
+  --color-card:                    var(--card);
+  --color-card-foreground:         var(--card-foreground);
+  --color-popover:                 var(--popover);
+  --color-popover-foreground:      var(--popover-foreground);
+  --color-primary:                 var(--primary);
+  --color-primary-foreground:      var(--primary-foreground);
+  --color-secondary:               var(--secondary);
+  --color-secondary-foreground:    var(--secondary-foreground);
+  --color-muted:                   var(--muted);
+  --color-muted-foreground:        var(--muted-foreground);
+  --color-accent:                  var(--accent);
+  --color-accent-foreground:       var(--accent-foreground);
+  --color-destructive:             var(--destructive);
+  --color-destructive-foreground:  var(--destructive-foreground);
+  --color-border:                  var(--border);
+  --color-input:                   var(--input);
+  --color-ring:                    var(--ring);
+}
 
 :root {
   --font-mono: 'SF Mono', 'Cascadia Code', Menlo, monospace;
@@ -37,6 +60,26 @@
   --color-accent-pink-glow-mid: rgba(217, 119, 6, 0.2);
   --color-accent-violet: #9333ea;
   --color-accent-violet-dim: rgba(147, 51, 234, 0.10);
+  /* shadcn bridge — point canonical vars to Temper palette */
+  --background: var(--color-bg-primary);
+  --foreground: var(--color-text-primary);
+  --card: var(--color-bg-surface);
+  --card-foreground: var(--color-text-primary);
+  --popover: var(--color-bg-surface);
+  --popover-foreground: var(--color-text-primary);
+  --primary: var(--color-accent-teal);
+  --primary-foreground: #FAFAFA;
+  --secondary: var(--color-bg-elevated);
+  --secondary-foreground: var(--color-text-secondary);
+  --muted: var(--color-bg-elevated);
+  --muted-foreground: var(--color-text-muted);
+  --accent: var(--color-bg-elevated);
+  --accent-foreground: var(--color-text-primary);
+  --destructive: var(--color-accent-pink);
+  --destructive-foreground: #FAFAFA;
+  --border: var(--color-border);
+  --input: var(--color-border);
+  --ring: var(--color-accent-teal);
 }
 
 /* Light mode — Dark Temper light variant from design mockup v8 */
@@ -67,6 +110,26 @@
   --color-accent-pink-glow-mid: rgba(146, 64, 14, 0.2);
   --color-accent-violet: #581c87;
   --color-accent-violet-dim: rgba(88, 28, 135, 0.10);
+  /* shadcn bridge */
+  --background: var(--color-bg-primary);
+  --foreground: var(--color-text-primary);
+  --card: var(--color-bg-surface);
+  --card-foreground: var(--color-text-primary);
+  --popover: var(--color-bg-surface);
+  --popover-foreground: var(--color-text-primary);
+  --primary: var(--color-accent-teal);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--color-bg-elevated);
+  --secondary-foreground: var(--color-text-secondary);
+  --muted: var(--color-bg-elevated);
+  --muted-foreground: var(--color-text-muted);
+  --accent: var(--color-bg-elevated);
+  --accent-foreground: var(--color-text-primary);
+  --destructive: var(--color-accent-pink);
+  --destructive-foreground: #FFFFFF;
+  --border: var(--color-border);
+  --input: var(--color-border);
+  --ring: var(--color-accent-teal);
 }
 
 body {

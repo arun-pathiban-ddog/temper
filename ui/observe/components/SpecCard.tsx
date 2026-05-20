@@ -4,6 +4,10 @@ import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { SpecSummary } from "@/lib/types";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface SpecCardProps {
   spec: SpecSummary;
@@ -16,22 +20,23 @@ function VerificationBadge({ spec }: { spec: SpecSummary }) {
       ? `${spec.levels_passed}/${spec.levels_total}`
       : null;
 
-  const config: Record<string, { bg: string; text: string; label: string; pulse?: boolean }> = {
-    pending: { bg: "bg-[var(--color-accent-lime-dim)]", text: "text-[var(--color-text-secondary)]", label: "Pending" },
-    running: { bg: "bg-[var(--color-accent-pink-dim)]", text: "text-[var(--color-accent-pink)]", label: "Verifying...", pulse: true },
-    passed: { bg: "bg-[var(--color-accent-teal-dim)]", text: "text-[var(--color-accent-teal)]", label: "Verified" },
-    failed: { bg: "bg-[var(--color-accent-pink-dim)]", text: "text-[var(--color-accent-pink)]", label: "Failed" },
-    partial: { bg: "bg-[var(--color-accent-pink-dim)]", text: "text-[var(--color-accent-pink)]", label: levelInfo ? `Partial (${levelInfo})` : "Partial" },
+  const config: Record<string, { className: string; label: string; pulse?: boolean }> = {
+    pending: { className: "bg-[var(--color-accent-lime-dim)] text-[var(--color-text-secondary)] border-transparent", label: "Pending" },
+    running: { className: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] border-transparent", label: "Verifying...", pulse: true },
+    passed: { className: "bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent", label: "Verified" },
+    failed: { className: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] border-transparent", label: "Failed" },
+    partial: { className: "bg-[var(--color-accent-pink-dim)] text-[var(--color-accent-pink)] border-transparent", label: levelInfo ? `Partial (${levelInfo})` : "Partial" },
   };
 
   const c = config[status] ?? config.pending;
 
   return (
-    <span
-      className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${c.bg} ${c.text} ${c.pulse ? "animate-pulse" : ""}`}
+    <Badge
+      variant="outline"
+      className={cn("font-mono text-[10px]", c.className, c.pulse && "animate-pulse")}
     >
       {c.label}
-    </span>
+    </Badge>
   );
 }
 
@@ -52,64 +57,76 @@ export default function SpecCard({ spec }: SpecCardProps) {
 
   return (
     <Link href={`/specs/${spec.entity_type}`}>
-      <div
-        className={`bg-[var(--color-bg-surface)] rounded-[2px] p-5 hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group ${cardFlash}`}
+      <Card
+        className={cn(
+          "rounded-[2px] border-0 bg-[var(--color-bg-surface)] hover:bg-[var(--color-bg-elevated)] transition-colors cursor-pointer group",
+          cardFlash
+        )}
         onAnimationEnd={() => setCardFlash("")}
       >
-        <div className="flex items-start justify-between mb-2.5">
-          <h3 className="text-base font-semibold text-[var(--color-text-primary)] tracking-tight truncate min-w-0" title={spec.entity_type}>{spec.entity_type}</h3>
-          <div className="flex gap-1.5">
-            <VerificationBadge spec={spec} />
-            <span className="text-[10px] font-mono bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] px-2 py-0.5 rounded-full">
-              IOA
-            </span>
+        <CardHeader className="p-5 pb-2.5">
+          <div className="flex items-start justify-between">
+            <h3 className="text-base font-semibold text-[var(--color-text-primary)] tracking-tight truncate min-w-0" title={spec.entity_type}>
+              {spec.entity_type}
+            </h3>
+            <div className="flex gap-1.5 flex-shrink-0 ml-2">
+              <VerificationBadge spec={spec} />
+              <Badge variant="outline" className="font-mono text-[10px] bg-[var(--color-accent-teal-dim)] text-[var(--color-accent-teal)] border-transparent">
+                IOA
+              </Badge>
+            </div>
           </div>
-        </div>
+        </CardHeader>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[var(--color-text-muted)]">States</span>
-            <span className="font-mono text-[var(--color-text-secondary)]">{spec.states.length}</span>
+        <CardContent className="px-5 pb-5">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[var(--color-text-muted)]">States</span>
+              <span className="font-mono text-[var(--color-text-secondary)]">{spec.states.length}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[var(--color-text-muted)]">Actions</span>
+              <span className="font-mono text-[var(--color-text-secondary)]">{spec.actions.length}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-[var(--color-text-muted)]">Initial</span>
+              <span className="font-mono text-[var(--color-accent-lime)]">{spec.initial_state}</span>
+            </div>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[var(--color-text-muted)]">Actions</span>
-            <span className="font-mono text-[var(--color-text-secondary)]">{spec.actions.length}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[var(--color-text-muted)]">Initial</span>
-            <span className="font-mono text-[var(--color-accent-lime)]">{spec.initial_state}</span>
-          </div>
-        </div>
 
-        <div className="mt-3 flex flex-wrap gap-1">
-          {spec.states.map((state) => (
-            <span
-              key={state}
-              className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                state === spec.initial_state
-                  ? "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)]"
-                  : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]"
-              }`}
+          <div className="mt-3 flex flex-wrap gap-1">
+            {spec.states.map((state) => (
+              <Badge
+                key={state}
+                variant="outline"
+                className={cn(
+                  "font-mono text-[10px] border-transparent",
+                  state === spec.initial_state
+                    ? "bg-[var(--color-accent-lime-dim)] text-[var(--color-accent-lime)]"
+                    : "bg-[var(--color-bg-elevated)] text-[var(--color-text-secondary)]"
+                )}
+              >
+                {state}
+              </Badge>
+            ))}
+          </div>
+
+          <div className="mt-3">
+            <Button
+              variant="link"
+              size="sm"
+              className="text-[11px] text-[var(--color-accent-teal)] p-0 h-auto"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                router.push(`/verify/${spec.entity_type}`);
+              }}
             >
-              {state}
-            </span>
-          ))}
-        </div>
-
-        <div className="mt-3 flex gap-2">
-          <button
-            type="button"
-            className="text-[11px] text-[var(--color-accent-teal)] hover:text-[var(--color-accent-teal)] transition-colors"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              router.push(`/verify/${spec.entity_type}`);
-            }}
-          >
-            Verify
-          </button>
-        </div>
-      </div>
+              Verify
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </Link>
   );
 }

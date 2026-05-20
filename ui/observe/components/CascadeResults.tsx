@@ -12,6 +12,8 @@ import type {
   InvariantViolation,
   PropTestDetails,
 } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 
 interface CascadeResultsProps {
   levels: VerificationLevel[];
@@ -187,11 +189,12 @@ function LivenessGroupCard({ property, violations }: { property: string; violati
   const [isOpen, setIsOpen] = useState(violations.length <= 3);
 
   return (
-    <div className={`${GLASS} overflow-hidden bg-gradient-to-r ${B_GRAD} to-transparent`}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-3 text-left hover:bg-[var(--color-bg-elevated)] transition-colors"
-      >
+    <Collapsible
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      className={`${GLASS} overflow-hidden bg-gradient-to-r ${B_GRAD} to-transparent`}
+    >
+      <CollapsibleTrigger className="rounded-[2px] w-full flex items-center justify-between p-3 text-left hover:bg-[var(--color-bg-elevated)] transition-colors">
         <span className={`font-mono text-[12px] ${B}`}>{property}</span>
         <div className="flex items-center gap-2.5">
           <span className="text-[10px] font-mono text-[var(--color-text-secondary)]">
@@ -199,8 +202,8 @@ function LivenessGroupCard({ property, violations }: { property: string; violati
           </span>
           <Chevron open={isOpen} />
         </div>
-      </button>
-      {isOpen && (
+      </CollapsibleTrigger>
+      <CollapsibleContent>
         <div className="border-t border-[var(--color-border)] divide-y divide-[var(--color-border)]">
           {violations.map((v, i) => (
             <div key={i} className="p-3">
@@ -215,8 +218,8 @@ function LivenessGroupCard({ property, violations }: { property: string; violati
             </div>
           ))}
         </div>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -397,9 +400,11 @@ export default function CascadeResults({ levels, allPassed }: CascadeResultsProp
             </span>
           </div>
           <div>
-            <div className={`text-sm font-semibold tracking-tight ${allPassed ? G : B}`}>
+            <Badge
+              className={`rounded-[2px] text-sm font-semibold tracking-tight border-0 px-0 bg-transparent ${allPassed ? G : B}`}
+            >
               {allPassed ? "All Levels Passed" : "Verification Failed"}
-            </div>
+            </Badge>
             <div className="text-[12px] text-[var(--color-text-secondary)]">
               {levels.filter((l) => l.passed).length} of {levels.length} levels passed
             </div>
@@ -414,16 +419,15 @@ export default function CascadeResults({ levels, allPassed }: CascadeResultsProp
         const hasDetails = !!(level.smt || level.verification || level.simulation || level.prop_test || level.details);
 
         return (
-          <div
+          <Collapsible
             key={i}
+            open={isExpanded}
+            onOpenChange={() => toggle(i)}
             className={`${GLASS} overflow-hidden transition-all duration-200 ${
               !level.passed && !isSkipped ? `bg-gradient-to-r ${B_GRAD} to-transparent` : ""
             }`}
           >
-            <button
-              onClick={() => toggle(i)}
-              className="w-full flex items-center justify-between p-3 text-left hover:bg-[var(--color-bg-elevated)] transition-colors"
-            >
+            <CollapsibleTrigger className="rounded-[2px] w-full flex items-center justify-between p-3 text-left hover:bg-[var(--color-bg-elevated)] transition-colors">
               <div className="flex items-center gap-3">
                 <Dot passed={isSkipped ? true : level.passed} />
                 <div>
@@ -435,20 +439,22 @@ export default function CascadeResults({ levels, allPassed }: CascadeResultsProp
               </div>
               <div className="flex items-center gap-3">
                 {level.duration_ms !== undefined && level.duration_ms > 0 && (
-                  <span className="text-[10px] font-mono text-[var(--color-text-muted)]">{level.duration_ms}ms</span>
+                  <Badge className="rounded-[2px] text-[10px] font-mono border-0 bg-transparent text-[var(--color-text-muted)] px-0">
+                    {level.duration_ms}ms
+                  </Badge>
                 )}
                 {hasDetails && <Chevron open={isExpanded} />}
               </div>
-            </button>
+            </CollapsibleTrigger>
 
-            {isExpanded && (
+            <CollapsibleContent>
               <div className="px-3 pb-3 border-t border-[var(--color-border)]">
                 <div className="mt-3">
                   <LevelDetailPanel level={level} />
                 </div>
               </div>
-            )}
-          </div>
+            </CollapsibleContent>
+          </Collapsible>
         );
       })}
     </div>

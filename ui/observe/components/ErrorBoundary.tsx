@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Button } from "@/components/ui/button";
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -60,12 +61,12 @@ export default class ErrorBoundary extends React.Component<
             <p className="text-sm text-[var(--color-text-secondary)] mb-4">
               {this.state.error?.message || "An unexpected error occurred."}
             </p>
-            <button
+            <Button
               onClick={this.handleRetry}
-              className="px-4 py-2 bg-[var(--color-accent-teal)] hover:bg-[var(--color-accent-teal)] text-[var(--color-bg-primary)] text-sm rounded-[2px] transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-teal)] focus:ring-offset-2 focus:ring-offset-[var(--color-bg-primary)]"
+              className="px-4 py-2 bg-[var(--color-accent-teal)] text-[var(--color-bg-primary)] text-sm rounded-[2px]"
             >
               Try Again
-            </button>
+            </Button>
           </div>
         </div>
       );
