@@ -11,15 +11,13 @@ export default function ThemeToggle() {
     const stored = localStorage.getItem("temper-theme") as "dark" | "light" | null;
     const initial = stored || "dark";
     setMode(initial);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(initial);
+    document.documentElement.dataset.theme = initial;
   }, []);
 
   const toggle = () => {
     const next = mode === "dark" ? "light" : "dark";
     setMode(next);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(next);
+    document.documentElement.dataset.theme = next;
     localStorage.setItem("temper-theme", next);
   };
 
@@ -28,7 +26,7 @@ export default function ThemeToggle() {
       variant="ghost"
       size="icon"
       onClick={toggle}
-      className="w-7 h-7 rounded-[2px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+      className="w-7 h-7 rounded-md text-muted-foreground hover:text-foreground"
       aria-label={`Switch to ${mode === "dark" ? "light" : "dark"} mode`}
     >
       {mode === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
