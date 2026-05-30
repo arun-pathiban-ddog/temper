@@ -1,0 +1,31 @@
+{
+  "captured_at": "2026-05-30T00:00:00Z",
+  "window": "30m",
+  "_note": "Telemetry snapshot for offline breeder niche inference. Each series came from a Datadog query scoped to one queue by its queue: tag. NO workload spec from Temper is present here — only metrics. Four queues, four archetypes: orders=high-throughput-batch, checkout=low-latency, flash-sale=bursty, audit-log=steady.",
+  "queues": ["orders", "checkout", "flash-sale", "audit-log"],
+  "series": {
+    "sum:workload.producer.sent{queue:orders}.as_rate()": [310, 305, 298, 312, 301, 308, 300, 315],
+    "avg:workload.producer.send_latency_ms{queue:orders}": [44, 47, 42, 46, 45, 43, 48, 44],
+    "sum:workload.consumer.consumed{queue:orders}.as_rate()": [305, 300, 295, 308, 299, 304, 298, 310],
+    "avg:workload.consumer.lag{queue:orders}": [1200, 1180, 1210, 1190, 1205, 1195, 1188, 1202],
+    "max:workload.consumer.fanout{queue:orders}": [1, 1, 1, 1, 1, 1, 1, 1],
+
+    "sum:workload.producer.sent{queue:checkout}.as_rate()": [90, 92, 88, 91, 89, 90, 93, 88],
+    "avg:workload.producer.send_latency_ms{queue:checkout}": [5, 6, 4, 5, 6, 5, 4, 5],
+    "sum:workload.consumer.consumed{queue:checkout}.as_rate()": [90, 91, 89, 90, 88, 91, 92, 89],
+    "avg:workload.consumer.lag{queue:checkout}": [12, 10, 14, 11, 13, 10, 12, 11],
+    "max:workload.consumer.fanout{queue:checkout}": [1, 1, 1, 1, 1, 1, 1, 1],
+
+    "sum:workload.producer.sent{queue:flash-sale}.as_rate()": [20, 18, 240, 260, 22, 19, 280, 25],
+    "avg:workload.producer.send_latency_ms{queue:flash-sale}": [8, 7, 95, 110, 9, 8, 120, 10],
+    "sum:workload.consumer.consumed{queue:flash-sale}.as_rate()": [20, 18, 150, 160, 22, 19, 170, 25],
+    "avg:workload.consumer.lag{queue:flash-sale}": [50, 40, 800, 1500, 600, 200, 1800, 400],
+    "max:workload.consumer.fanout{queue:flash-sale}": [1, 1, 1, 1, 1, 1, 1, 1],
+
+    "sum:workload.producer.sent{queue:audit-log}.as_rate()": [8, 9, 7, 8, 8, 9, 7, 8],
+    "avg:workload.producer.send_latency_ms{queue:audit-log}": [30, 28, 32, 29, 31, 30, 28, 31],
+    "sum:workload.consumer.consumed{queue:audit-log}.as_rate()": [8, 8, 9, 7, 8, 8, 9, 8],
+    "avg:workload.consumer.lag{queue:audit-log}": [15, 14, 16, 15, 14, 15, 16, 15],
+    "max:workload.consumer.fanout{queue:audit-log}": [1, 1, 1, 1, 1, 1, 1, 1]
+  }
+}

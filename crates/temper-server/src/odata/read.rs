@@ -2,9 +2,11 @@
 
 use std::sync::{Arc, RwLock};
 
+use axum::Extension;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use temper_authz::SecurityContext;
 use temper_odata::path::{ODataPath, parse_path};
 use temper_odata::query::parse_query_options;
 use temper_odata::query::types::{ExpandItem, ExpandOptions, QueryOptions};
@@ -23,8 +25,11 @@ use super::read_support::{
 };
 use super::response::annotate_entity;
 use super::stream_fast_path::try_file_stream_fast_path;
+use crate::authz::{DenialInput, record_authz_denial, security_context_from_headers};
 use crate::blobs::hydrate_blob_refs_for_tenant;
+use crate::identity::ResolvedIdentity;
 use crate::query_eval::{apply_query_options, expand_entity, select_fields};
+use crate::request_context::extract_agent_context;
 use crate::response::{ODataResponse, ODataStreamResponse, ODataXmlResponse, odata_error};
 use crate::state::ServerState;
 
@@ -387,6 +392,7 @@ pub(super) async fn handle_odata_get_for_tenant(
     tenant: TenantId,
     path: String,
     query_params: std::collections::BTreeMap<String, String>,
+    security_ctx: &SecurityContext,
 ) -> axum::response::Response {
     let odata_path = match parse_path(&format!("/{path}")) {
         Ok(p) => p,
@@ -422,29 +428,53 @@ pub(super) async fn handle_odata_get_for_tenant(
         .into_response(),
 
         ODataPath::EntitySet(name) => {
-            handle_entity_set(&state, &tenant, &name, &query_options).await
+            handle_entity_set(&state, &tenant, &name, &query_options, security_ctx).await
         }
 
         ODataPath::Entity(set_name, key) => {
-            handle_entity(&state, &tenant, &set_name, &key, &query_options).await
+            handle_entity(&state, &tenant, &set_name, &key, &query_options, security_ctx).await
         }
 
         ODataPath::NavigationProperty {
             ref parent,
             ref property,
-        } => handle_navigation_property(&state, &tenant, parent, property, &query_options).await,
+        } => {
+            handle_navigation_property(
+                &state,
+                &tenant,
+                parent,
+                property,
+                &query_options,
+                security_ctx,
+            )
+            .await
+        }
 
         ODataPath::NavigationEntity {
             ref parent,
             ref property,
             ref key,
-        } => handle_navigation_entity(&state, &tenant, parent, property, key, &query_options).await,
-
-        ODataPath::BoundFunction { parent, function } => {
-            handle_bound_function(&state, &tenant, &parent, &function, &query_options).await
+        } => {
+            handle_navigation_entity(
+                &state,
+                &tenant,
+                parent,
+                property,
+                key,
+                &query_options,
+                security_ctx,
+            )
+            .await
         }
 
-        ODataPath::Value { ref parent } => handle_stream_get(&state, &tenant, parent).await,
+        ODataPath::BoundFunction { parent, function } => {
+            handle_bound_function(&state, &tenant, &parent, &function, &query_options, security_ctx)
+                .await
+        }
+
+        ODataPath::Value { ref parent } => {
+            handle_stream_get(&state, &tenant, parent, security_ctx).await
+        }
 
         _ => odata_error(
             StatusCode::NOT_IMPLEMENTED,
@@ -455,18 +485,77 @@ pub(super) async fn handle_odata_get_for_tenant(
     }
 }
 
+/// Cedar read authorization for an OData read surface.
+///
+/// Gates a read/list against Cedar exactly like entity actions. On denial it
+/// records a `GovernanceDecision` (so the denial surfaces in the Observe UI,
+/// mirroring the action path in `bindings.rs`) and returns a `403` response.
+/// Returns `None` when allowed.
+///
+/// Kept lightweight: callers pass id-only or empty attrs — no snapshot load.
+async fn authorize_read_or_deny(
+    state: &ServerState,
+    tenant: &TenantId,
+    security_ctx: &SecurityContext,
+    action: &str,
+    entity_type: &str,
+    resource_id: &str,
+    resource_attrs: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Option<axum::response::Response> {
+    let Err(denial) =
+        state.authorize_with_context(security_ctx, action, entity_type, resource_attrs, tenant.as_str())
+    else {
+        return None;
+    };
+
+    let reason = denial.to_string();
+    let pd = record_authz_denial(
+        state,
+        DenialInput {
+            tenant: tenant.as_str(),
+            security_ctx,
+            agent_id_override: None,
+            action,
+            resource_type: entity_type,
+            resource_id,
+            resource_attrs: serde_json::to_value(resource_attrs).unwrap_or_default(),
+            reason: &reason,
+            module_name: None,
+            from_status: None,
+        },
+    )
+    .await;
+
+    let reason_with_id = format!("{reason} (decision: {})", pd.id);
+    Some(
+        odata_error(StatusCode::FORBIDDEN, "AuthorizationDenied", &reason_with_id).into_response(),
+    )
+}
+
 /// Handle `EntitySet` path: list all entities in a set with query options.
 async fn handle_entity_set(
     state: &ServerState,
     tenant: &TenantId,
     name: &str,
     query_options: &QueryOptions,
+    security_ctx: &SecurityContext,
 ) -> axum::response::Response {
     tracing::debug!(name = %name, tenant = %tenant, "handle_entity_set");
     let entity_type = match resolve_entity_type(state, tenant, name) {
         Some(t) => t,
         None => return entity_set_not_found_response(state, tenant, name).await,
     };
+
+    // Cedar read authorization (list) — gates the LIST path identically to
+    // entity actions. Empty attrs keep this lightweight (no snapshot load).
+    let list_attrs: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    if let Some(resp) =
+        authorize_read_or_deny(state, tenant, security_ctx, "list", &entity_type, "", &list_attrs)
+            .await
+    {
+        return resp;
+    }
 
     let default_page_size = odata_default_page_size();
     let max_entities = odata_max_entities();
@@ -577,12 +666,35 @@ async fn handle_entity(
     set_name: &str,
     key: &temper_odata::path::KeyValue,
     query_options: &QueryOptions,
+    security_ctx: &SecurityContext,
 ) -> axum::response::Response {
     let entity_type = match resolve_entity_type(state, tenant, set_name) {
         Some(t) => t,
         None => return entity_set_not_found_response(state, tenant, set_name).await,
     };
     let key_str = extract_key(key);
+
+    // Cedar read authorization — gates the single-READ path identically to
+    // entity actions. Id-only attrs keep this lightweight (no snapshot load).
+    let mut read_attrs: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    read_attrs.insert(
+        "id".to_string(),
+        serde_json::Value::String(key_str.clone()),
+    );
+    if let Some(resp) = authorize_read_or_deny(
+        state,
+        tenant,
+        security_ctx,
+        "read",
+        &entity_type,
+        &key_str,
+        &read_attrs,
+    )
+    .await
+    {
+        return resp;
+    }
 
     if state.is_pg_actor_backed(tenant, &entity_type)
         && let Some(actor_sys) = &state.pg_actor_system
@@ -657,6 +769,7 @@ async fn handle_navigation_property(
     parent: &ODataPath,
     property: &str,
     query_options: &QueryOptions,
+    security_ctx: &SecurityContext,
 ) -> axum::response::Response {
     let (parent_type, parent_key, parent_set) =
         match resolve_parent_entity(parent, state, tenant).await {
@@ -665,6 +778,24 @@ async fn handle_navigation_property(
                 return odata_error(status, "InvalidPath", &msg).into_response();
             }
         };
+
+    // Cedar read authorization — gate on the navigation target's entity type
+    // (the type whose data is actually returned). Empty attrs keep it light.
+    if let Ok(target_type) =
+        resolve_navigation_target_type(state, tenant, &parent_type, property)
+        && let Some(resp) = authorize_read_or_deny(
+            state,
+            tenant,
+            security_ctx,
+            "read",
+            &target_type,
+            "",
+            &std::collections::BTreeMap::new(),
+        )
+        .await
+    {
+        return resp;
+    }
 
     let parent_body = match load_existing_entity_body(
         state,
@@ -757,6 +888,7 @@ async fn handle_navigation_entity(
     property: &str,
     key: &temper_odata::path::KeyValue,
     query_options: &QueryOptions,
+    security_ctx: &SecurityContext,
 ) -> axum::response::Response {
     let (parent_type, _parent_key, _parent_set) =
         match resolve_parent_entity(parent, state, tenant).await {
@@ -777,6 +909,25 @@ async fn handle_navigation_entity(
     };
 
     let key_str = extract_key(key);
+
+    // Cedar read authorization — gate on the navigation target's entity type.
+    let mut read_attrs: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    read_attrs.insert("id".to_string(), serde_json::Value::String(key_str.clone()));
+    if let Some(resp) = authorize_read_or_deny(
+        state,
+        tenant,
+        security_ctx,
+        "read",
+        &target_type,
+        &key_str,
+        &read_attrs,
+    )
+    .await
+    {
+        return resp;
+    }
+
     let target_set = resolve_entity_set_name(state, tenant, &target_type);
 
     match build_entity_body(
@@ -812,6 +963,7 @@ async fn handle_bound_function(
     parent: &ODataPath,
     function: &str,
     query_options: &QueryOptions,
+    security_ctx: &SecurityContext,
 ) -> axum::response::Response {
     let (parent_set, parent_key) = match parent {
         ODataPath::Entity(set_name, key) => (set_name.clone(), extract_key(key)),
@@ -836,6 +988,27 @@ async fn handle_bound_function(
             .into_response();
         }
     };
+
+    // Cedar read authorization — gate the bound function's parent entity read.
+    let mut read_attrs: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    read_attrs.insert(
+        "id".to_string(),
+        serde_json::Value::String(parent_key.clone()),
+    );
+    if let Some(resp) = authorize_read_or_deny(
+        state,
+        tenant,
+        security_ctx,
+        "read",
+        &entity_type,
+        &parent_key,
+        &read_attrs,
+    )
+    .await
+    {
+        return resp;
+    }
 
     match build_entity_body(
         state,
@@ -867,6 +1040,7 @@ async fn handle_bound_function(
 #[instrument(skip_all, fields(otel.name = "GET /odata/{path}"))]
 pub async fn handle_odata_get(
     State(state): State<ServerState>,
+    resolved_id: Option<Extension<ResolvedIdentity>>,
     headers: HeaderMap,
     axum::extract::Path(path): axum::extract::Path<String>,
     Query(query_params): Query<std::collections::BTreeMap<String, String>>,
@@ -875,7 +1049,23 @@ pub async fn handle_odata_get(
         Ok(t) => t,
         Err(e) => return e.into_response(),
     };
-    handle_odata_get_for_tenant(state, tenant, path, query_params).await
+
+    // Build SecurityContext for Cedar read authorization — credential-resolved
+    // identity (ADR-0033) or operator identity via global API key. Mirrors the
+    // POST/action path in bindings.rs so reads gate through Cedar identically.
+    let agent_ctx = extract_agent_context(&headers);
+    let resolved_identity = resolved_id.map(|Extension(id)| id);
+    let security_ctx = if let Some(identity) = resolved_identity {
+        SecurityContext::from_resolved_identity(
+            &identity.agent_instance_id,
+            &identity.agent_type_name,
+            agent_ctx.session_id.as_deref(),
+        )
+    } else {
+        security_context_from_headers(&headers, None, agent_ctx.session_id.as_deref(), None)
+    };
+
+    handle_odata_get_for_tenant(state, tenant, path, query_params, &security_ctx).await
 }
 
 #[instrument(skip_all, fields(otel.name = "GET /odata"))]
@@ -932,6 +1122,7 @@ async fn handle_stream_get(
     state: &ServerState,
     tenant: &TenantId,
     parent: &ODataPath,
+    security_ctx: &SecurityContext,
 ) -> axum::response::Response {
     // 1. Resolve parent to (set_name, entity_id)
     let (set_name, key) = match resolve_value_parent(parent) {
@@ -943,6 +1134,17 @@ async fn handle_stream_get(
         Some(t) => t,
         None => return entity_set_not_found_response(state, tenant, &set_name).await,
     };
+
+    // Cedar read authorization — gate the $value stream read on its entity.
+    let mut read_attrs: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    read_attrs.insert("id".to_string(), serde_json::Value::String(key.clone()));
+    if let Some(resp) =
+        authorize_read_or_deny(state, tenant, security_ctx, "read", &entity_type, &key, &read_attrs)
+            .await
+    {
+        return resp;
+    }
 
     // 2. Check HasStream=true
     if let Err(resp) = check_has_stream_or_400(state, tenant, &entity_type) {

@@ -1,0 +1,104 @@
+# Migration Entity — I/O Automaton Specification
+#
+# A governed queue move: relocate one queue's producers + consumers from a
+# source Helix cluster to a target specialized cluster (ADR-0099). The breeding
+# agent proposes a migration when telemetry says a queue's workload shape fits a
+# niche better served by a dedicated cluster (speciation). The move is
+# Cedar-gated and recorded so it is auditable in the timeline.
+#
+#   Requested --Approve--> Approved --Apply--> Migrating
+#       Migrating --RecordResult--> (MarkDone | MarkFailed)
+#
+# The executor (deploy-service): creates the topic on the target cluster, then
+# redeploys that queue's producer/consumer workloads pointed at the target
+# cluster's broker DNS (helix-<target>...:9092), and stops the old ones. The
+# source cluster sheds that queue's load.
+
+[automaton]
+name = "Migration"
+states = ["Requested", "Approved", "Migrating", "Done", "Failed"]
+initial = "Requested"
+
+# --- State Variables ---
+
+[[state]]
+name = "approved"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_result"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Request"
+kind = "input"
+from = ["Requested"]
+effect = "noop"
+params = ["queue", "from_cluster", "to_cluster", "reason", "breed_id"]
+hint = "Request moving a queue's workloads from from_cluster to to_cluster, with a reason (the inferred niche) and the linked breed_id."
+
+[[action]]
+name = "Approve"
+kind = "internal"
+from = ["Requested"]
+to = "Approved"
+effect = "set approved true"
+hint = "Approve the migration. Supervisor/human or the breeder (auto-approved migrations are still recorded as governed actions)."
+
+[[action]]
+name = "Apply"
+kind = "internal"
+from = ["Approved"]
+to = "Migrating"
+guard = "is_true approved"
+hint = "Begin the move. The deploy-service executor creates the topic on to_cluster and redeploys the queue's workloads there, then stops the old ones."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Migrating"]
+effect = "set has_result true"
+params = ["result", "moved"]
+hint = "Record the migration result: the kubectl commands run and which workloads (moved) were recreated on the target cluster and stopped on the source."
+
+[[action]]
+name = "MarkDone"
+kind = "internal"
+from = ["Migrating"]
+to = "Done"
+guard = "is_true has_result"
+hint = "Land the migration as Done once the queue's workloads run on the target cluster and the old ones are stopped."
+
+[[action]]
+name = "MarkFailed"
+kind = "internal"
+from = ["Migrating"]
+to = "Failed"
+guard = "is_true has_result"
+hint = "Land the migration as Failed if the move did not complete (e.g. target topic create or workload reschedule failed)."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "MigratingRequiresApproval"
+when = ["Migrating", "Done"]
+assert = "approved"
+
+[[invariant]]
+name = "TerminalRequiresResult"
+when = ["Done", "Failed"]
+assert = "has_result"
+
+[[invariant]]
+name = "DoneIsFinal"
+when = ["Done"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

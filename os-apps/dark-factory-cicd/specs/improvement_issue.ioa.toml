@@ -1,0 +1,258 @@
+# ImprovementIssue Entity — I/O Automaton Specification
+#
+# The Dark Factory tracker that threads the whole Helix improvement loop:
+# an Observer/Researcher (C2) files it, drives planning, hands it to the
+# Symphony orchestrator (C1) for implementation, Track B's CIRun verifies the
+# branch, a human approves a Deploy, and B rolls it out.
+#
+# Role separation is Cedar-enforced (policies/improvement_issue.cedar):
+#   - the planner may NOT approve their own plan,
+#   - the implementer may NOT approve their own deploy,
+#   - only agent_type in [supervisor, human] with agentTypeVerified may
+#     ApprovePlan / ApproveDeploy.
+
+[automaton]
+name = "ImprovementIssue"
+states = [
+  "Observed",
+  "Researching",
+  "Planned",
+  "Implementing",
+  "Verifying",
+  "Deploying",
+  "Done",
+  "Failed",
+]
+initial = "Observed"
+
+# --- State Variables (back the invariants) ---
+
+[[state]]
+name = "planner_set"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "assignee_set"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_plan"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "plan_approved"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_branch"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_pr"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "ci_run_set"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "ci_passed"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "deploy_approved"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "plan_revision_count"
+type = "counter"
+initial = "0"
+
+# --- Observe / Research phase (Track C2) ---
+
+[[action]]
+name = "Observe"
+kind = "input"
+from = ["Observed"]
+params = ["title", "hypothesis", "target_file"]
+hint = "Record the initial observation: title, hypothesis, and the suspected target file. Fired by the Observer/Researcher (C2)."
+
+[[action]]
+name = "BeginPlanning"
+kind = "internal"
+from = ["Observed"]
+to = "Researching"
+hint = "Move into the research/planning phase. The planner drafts an approach."
+
+[[action]]
+name = "AssignPlanner"
+kind = "input"
+from = ["Observed", "Researching"]
+effect = "set planner_set true"
+params = ["planner_id"]
+hint = "Assign the planner agent that will draft the plan."
+
+[[action]]
+name = "Assign"
+kind = "input"
+from = ["Observed", "Researching", "Planned", "Implementing"]
+effect = "set assignee_set true"
+params = ["assignee_id"]
+hint = "Assign the implementer agent (the Symphony orchestrator). Can differ from the planner."
+
+[[action]]
+name = "WritePlan"
+kind = "input"
+from = ["Researching"]
+effect = "set has_plan true"
+params = ["plan", "acceptance_criteria"]
+hint = "Draft or update the implementation plan and its acceptance criteria."
+
+[[action]]
+name = "RevisePlan"
+kind = "input"
+from = ["Researching"]
+effect = "increment plan_revision_count"
+params = ["feedback"]
+hint = "Request a plan revision with feedback. The planner updates the plan."
+
+# --- Plan approval (human/supervisor only; planner != approver via Cedar) ---
+
+[[action]]
+name = "ApprovePlan"
+kind = "internal"
+from = ["Researching"]
+to = "Planned"
+guard = "is_true has_plan"
+effect = "set plan_approved true"
+hint = "Approve the plan. Human/supervisor only; the planner may not approve their own plan. Requires a written plan."
+
+# --- Implementation phase (Track C1 Symphony) ---
+
+[[action]]
+name = "StartWork"
+kind = "internal"
+from = ["Planned"]
+to = "Implementing"
+guard = "is_true assignee_set"
+effect = "set has_branch true"
+params = ["branch_name"]
+hint = "Begin implementation in an isolated Helix worktree on branch_name. Requires an assignee and an approved plan."
+
+[[action]]
+name = "AttachPr"
+kind = "input"
+from = ["Implementing"]
+effect = "set has_pr true"
+params = ["pr_url"]
+hint = "Record the PR URL produced by the coding agent."
+
+# --- Verification phase (Track B CIRun) ---
+
+[[action]]
+name = "StartVerify"
+kind = "internal"
+from = ["Implementing"]
+to = "Verifying"
+guard = "is_true has_pr"
+effect = "set ci_run_set true"
+params = ["ci_run_id"]
+hint = "Move to verification and link the CIRun that will test the branch. Requires a PR to be attached."
+
+[[action]]
+name = "RecordCiResult"
+kind = "input"
+from = ["Verifying"]
+params = ["ci_status"]
+hint = "Record the CI status reported by the CIRun executor (e.g. 'passed' or 'failed')."
+
+[[action]]
+name = "MarkCiPassed"
+kind = "internal"
+from = ["Verifying"]
+effect = "set ci_passed true"
+hint = "Mark CI as passed once RecordCiResult reports success. Gate for deployment."
+
+# --- Deploy phase (human ApproveDeploy via Cedar, then Track B Deploy) ---
+
+[[action]]
+name = "ApproveDeploy"
+kind = "internal"
+from = ["Verifying"]
+to = "Deploying"
+guard = "is_true ci_passed"
+effect = "set deploy_approved true"
+hint = "Approve deployment. Human only; the implementer may not approve their own deploy. Requires a passing CI run."
+
+[[action]]
+name = "MarkDone"
+kind = "internal"
+from = ["Deploying"]
+to = "Done"
+hint = "Mark the issue done after the Deploy rolls out live."
+
+# --- Failure (reachable from any active state) ---
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Observed", "Researching", "Planned", "Implementing", "Verifying", "Deploying"]
+to = "Failed"
+params = ["reason"]
+hint = "Fail the issue with a reason from any active state."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "DoneIsFinal"
+when = ["Done"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "PlannedRequiresPlan"
+when = ["Planned", "Implementing", "Verifying", "Deploying", "Done"]
+assert = "has_plan"
+
+[[invariant]]
+name = "PlannedRequiresApproval"
+when = ["Planned", "Implementing", "Verifying", "Deploying", "Done"]
+assert = "plan_approved"
+
+[[invariant]]
+name = "ImplementingRequiresAssignee"
+when = ["Implementing", "Verifying", "Deploying", "Done"]
+assert = "assignee_set"
+
+[[invariant]]
+name = "ImplementingRequiresBranch"
+when = ["Implementing", "Verifying", "Deploying", "Done"]
+assert = "has_branch"
+
+[[invariant]]
+name = "VerifyingRequiresPr"
+when = ["Verifying", "Deploying", "Done"]
+assert = "has_pr"
+
+[[invariant]]
+name = "DeployingRequiresCiPass"
+when = ["Deploying", "Done"]
+assert = "ci_passed"
+
+[[invariant]]
+name = "DeployingRequiresApproval"
+when = ["Deploying", "Done"]
+assert = "deploy_approved"

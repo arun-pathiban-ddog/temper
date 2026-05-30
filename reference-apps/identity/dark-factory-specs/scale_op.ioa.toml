@@ -1,0 +1,101 @@
+# ScaleOp Entity — I/O Automaton Specification
+#
+# The Cedar-gated SCALE capability of the Dark Factory control plane (ADR-0096).
+# A ScaleOp may not scale the cluster until a human approves it (Approve is
+# Cedar-gated to humans/supervisors). The actual scale (kubectl scale against the
+# Helix StatefulSet in the dark-factory namespace ONLY) is performed by an
+# executor once the op reaches the Scaling state (i.e. after Approve + Apply),
+# which then calls RecordResult and lands the op in Done / Failed.
+#
+# Mirrors deploy.ioa.toml: Request -> Approve[HUMAN GATE] -> Apply -> Scaling ->
+# RecordResult -> Done|Failed.
+
+[automaton]
+name = "ScaleOp"
+states = ["Requested", "Approved", "Scaling", "Done", "Failed"]
+initial = "Requested"
+
+# --- State Variables ---
+
+[[state]]
+name = "approved"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_result"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Request"
+kind = "input"
+from = ["Requested"]
+effect = "set approved false"
+params = ["target_replicas", "current_replicas"]
+hint = "Request a scale to target_replicas (current_replicas is informational). Stays Requested until a human approves."
+
+[[action]]
+name = "Approve"
+kind = "internal"
+from = ["Requested"]
+to = "Approved"
+effect = "set approved true"
+hint = "Approve the scale. Human/supervisor only (Cedar-gated). Required before any scale."
+
+[[action]]
+name = "Apply"
+kind = "internal"
+from = ["Approved"]
+to = "Scaling"
+guard = "is_true approved"
+hint = "Begin the scale. Moves to Scaling; the executor runs kubectl scale against the dark-factory namespace from here."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Scaling"]
+effect = "set has_result true"
+params = ["result", "scale_cmd"]
+hint = "Executor records the scale result and the exact kubectl command run (scale_cmd)."
+
+[[action]]
+name = "MarkDone"
+kind = "internal"
+from = ["Scaling"]
+to = "Done"
+guard = "is_true has_result"
+hint = "Land the scale as Done once kubectl scale succeeded and a result was recorded."
+
+[[action]]
+name = "Fail"
+kind = "internal"
+from = ["Scaling"]
+to = "Failed"
+guard = "is_true has_result"
+params = ["reason"]
+hint = "Land the scale as Failed if the scale could not be applied/scheduled (e.g. shared-cluster capacity) and a result was recorded."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "DoneIsFinal"
+when = ["Done"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "ScalingRequiresApproval"
+when = ["Scaling", "Done", "Failed"]
+assert = "approved"
+
+[[invariant]]
+name = "TerminalRequiresResult"
+when = ["Done", "Failed"]
+assert = "has_result"

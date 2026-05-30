@@ -1,0 +1,76 @@
+# Consumer Entity — I/O Automaton Specification
+#
+# A governed Kafka load consumer for the Directed Evolution Workloads tab
+# (ADR-0097). A Consumer is Defined against a queue (topic) with an artificial
+# per-message process_ms (the "time taken to process each message" knob) and a
+# concurrency (consumer-group size / Deployment replicas), then Started. On
+# Start the executor creates a real k8s Deployment `consumer-<id>` in the
+# dark-factory namespace running a consumer-group that sleeps process_ms per
+# message, commits, and logs lag. On Stop the executor deletes the Deployment.
+#
+# Auto-approved: NO human gate. Cedar permits a verified workload-operator/
+# supervisor to Define/Start/Stop/RecordResult. The kubectl that creates/deletes
+# the Deployment is performed by the executor against the dark-factory namespace
+# ONLY (ns + context pinned; reuses the ADR-0096 _kubectl chokepoint).
+
+[automaton]
+name = "Consumer"
+states = ["Defined", "Running", "Stopped"]
+initial = "Defined"
+
+# --- State Variables ---
+
+[[state]]
+name = "defined"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_result"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Defined"]
+effect = "set defined true"
+params = ["queue", "process_ms", "concurrency", "cluster", "shape", "shape_params"]
+hint = "Define the consumer: queue (topic), process_ms (artificial per-message process time in ms), concurrency (consumer-group size = Deployment replicas), cluster (the Helix cluster name it targets; empty = baseline 'helix'), shape (consumption shape: stable|low_latency|batch|bursty|spiky), shape_params (JSON of shape-specific knobs e.g. batch_size/idle_ms/p99_ms)."
+
+[[action]]
+name = "Start"
+kind = "internal"
+from = ["Defined"]
+to = "Running"
+guard = "is_true defined"
+hint = "Start consuming. Moves to Running; the executor creates the consumer-<id> Deployment in dark-factory from here."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Running"]
+effect = "set has_result true"
+params = ["result"]
+hint = "Executor records the deploy/scheduling result + the exact kubectl run (audit trail) while the consumer is Running."
+
+[[action]]
+name = "Stop"
+kind = "internal"
+from = ["Running"]
+to = "Stopped"
+hint = "Stop consuming. Moves to Stopped; the executor deletes the consumer-<id> Deployment."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "StoppedIsFinal"
+when = ["Stopped"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RunningRequiresDefinition"
+when = ["Running", "Stopped"]
+assert = "defined"

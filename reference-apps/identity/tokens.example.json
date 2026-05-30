@@ -1,0 +1,45 @@
+{
+  "_comment": "SAMPLE — shape of tokens.json (the real file is gitignored, holds live bearer tokens). Generate the real one with register_identities.py / register_breeders.py against a running Temper server. Each identity: operator == global TEMPER_API_KEY (admin); the rest are VERIFIED agent identities resolved via the AgentCredential->AgentType chain. Wire each component to present its token; the supervisor token drives governed approvals.",
+  "operator": {
+    "role": "admin (global TEMPER_API_KEY)",
+    "token": "<bearer-token>",
+    "key_hash": "<sha256 of token>",
+    "key_prefix": "<first 8 chars>"
+  },
+  "observer": {
+    "role": "observer",
+    "token": "<bearer-token>",
+    "key_hash": "<sha256 of token>",
+    "key_prefix": "<first 8 chars>"
+  },
+  "researcher": {
+    "role": "researcher",
+    "token": "<bearer-token>",
+    "key_hash": "<sha256 of token>",
+    "key_prefix": "<first 8 chars>"
+  },
+  "symphony": {
+    "role": "symphony (implementer)",
+    "token": "<bearer-token>",
+    "key_hash": "<sha256 of token>",
+    "key_prefix": "<first 8 chars>"
+  },
+  "supervisor": {
+    "role": "supervisor (human approval gate)",
+    "token": "<bearer-token>",
+    "key_hash": "<sha256 of token>",
+    "key_prefix": "<first 8 chars>"
+  },
+  "breeder": {
+    "role": "breeder",
+    "token": "<bearer-token>",
+    "key_hash": "<sha256 of token>",
+    "key_prefix": "<first 8 chars>"
+  },
+  "breeder-supervisor": {
+    "role": "breeder-supervisor",
+    "token": "<bearer-token>",
+    "key_hash": "<sha256 of token>",
+    "key_prefix": "<first 8 chars>"
+  }
+}

@@ -1,0 +1,121 @@
+# Cluster Entity — I/O Automaton Specification
+#
+# A governed, independent Helix cluster deployed from its OWN git worktree
+# (branch df-cluster/<name> off main in the helix repo). The worktree is the
+# editable source of truth for that cluster; on Apply the control-plane backend
+# builds an image from the worktree (Cloud Build) and kubectl-applies a
+# per-cluster StatefulSet (helix-<name>) + Services into the dark-factory
+# namespace ONLY.
+#
+# Like Deploy (ADR-0096), the Approve action is the Cedar human gate: a cluster
+# may not begin building/deploying until a verified supervisor/human approves.
+# See ADR-0098.
+
+[automaton]
+name = "Cluster"
+states = ["Defined", "Approved", "Building", "Deploying", "Live", "Failed", "Torndown"]
+initial = "Defined"
+
+# --- State Variables ---
+
+[[state]]
+name = "approved"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "built"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_result"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Defined"]
+effect = "noop"
+params = ["name", "branch", "worktree_path", "replicas"]
+hint = "Define the cluster: its name (-> StatefulSet helix-<name>), the git branch/worktree it deploys from, and replica count. Stays Defined until a human approves."
+
+[[action]]
+name = "Approve"
+kind = "internal"
+from = ["Defined"]
+to = "Approved"
+effect = "set approved true"
+hint = "Approve the cluster. Human/supervisor only (Cedar-gated). Required before any build or deploy."
+
+[[action]]
+name = "Apply"
+kind = "internal"
+from = ["Approved"]
+to = "Building"
+guard = "is_true approved"
+hint = "Begin provisioning. Moves to Building; the backend creates the worktree and starts a Cloud Build of the cluster image from it."
+
+[[action]]
+name = "RecordBuild"
+kind = "input"
+from = ["Building"]
+to = "Deploying"
+effect = "set built true"
+params = ["image_tag", "build_result"]
+hint = "Record that the image build from the worktree succeeded and record the produced image_tag. Moves to Deploying, where the StatefulSet is kubectl-applied."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Deploying"]
+effect = "set has_result true"
+params = ["result", "apply_cmd"]
+hint = "Record the kubectl-apply result and the exact command run (apply_cmd) for the per-cluster StatefulSet."
+
+[[action]]
+name = "MarkLive"
+kind = "internal"
+from = ["Deploying"]
+to = "Live"
+guard = "is_true has_result"
+hint = "Land the cluster as Live once the StatefulSet rolled out and a result was recorded."
+
+[[action]]
+name = "MarkFailed"
+kind = "internal"
+from = ["Building", "Deploying"]
+to = "Failed"
+hint = "Land the cluster as Failed if the build or the kubectl-apply failed."
+
+[[action]]
+name = "Teardown"
+kind = "internal"
+from = ["Live", "Failed"]
+to = "Torndown"
+hint = "Tear the cluster down: the backend kubectl-deletes the helix-<name> StatefulSet + Services (dark-factory ns only) and prunes the worktree."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "ApplyRequiresApproval"
+when = ["Building", "Deploying", "Live"]
+assert = "approved"
+
+[[invariant]]
+name = "DeployingRequiresBuild"
+when = ["Deploying", "Live"]
+assert = "built"
+
+[[invariant]]
+name = "LiveRequiresResult"
+when = ["Live"]
+assert = "has_result"
+
+[[invariant]]
+name = "TorndownIsFinal"
+when = ["Torndown"]
+assert = "no_further_transitions"

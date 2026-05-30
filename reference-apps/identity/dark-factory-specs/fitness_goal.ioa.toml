@@ -1,0 +1,101 @@
+# FitnessGoal Entity — I/O Automaton Specification
+#
+# The human's "selective pressure" for directed evolution (ADR-0095). One
+# FitnessGoal per lineage names the metric to optimize and the direction. The
+# breeding harness reads the ACTIVE goal each generation and proposes a
+# goal-directed mutation. Changing the goal redirects evolution.
+#
+#   Set --Activate--> Active --Achieve--> Achieved
+#                       Active --Retire---> Retired
+#
+# Creating + Activating a goal is the up-front governance beat: the human points
+# evolution at a target, then the autonomous run proceeds.
+
+[automaton]
+name = "FitnessGoal"
+states = ["Set", "Active", "Achieved", "Retired"]
+initial = "Set"
+
+# --- State Variables ---
+
+[[state]]
+name = "generations_run"
+type = "counter"
+initial = "0"
+
+[[state]]
+name = "is_active"
+type = "bool"
+initial = "false"
+
+# --- Define the pressure ---
+
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Set"]
+params = ["intent", "lineage_id", "metric", "direction", "target", "scope", "cluster_id", "metrics"]
+hint = "Record the selective pressure. `intent` is the human's open-ended natural-language goal (the source of truth; ADR-0101). The agent discovers/creates the metrics that serve it: `metrics` is the growable JSON set of tracked metric names (existing + any created to close a blindspot). `metric`/`direction`/`target` are an optional derived primary axis. `scope` (global|cluster) + `cluster_id` set the goal's reach. The intent is NOT constrained to a fixed vocabulary — an unmeasured intent triggers an instrument-to-measure code change rather than rejection."
+
+# --- The agent records a metric it discovered/created as serving this goal ---
+
+[[action]]
+name = "TrackMetric"
+kind = "input"
+from = ["Set", "Active"]
+params = ["metric_name", "origin"]
+hint = "Add a metric to the goal's tracked set. origin = 'discovered' (an existing Datadog metric found relevant to the intent) or 'created' (a new helix.* metric the agent instrumented to close a blindspot)."
+
+# --- Activate: the human points evolution at this goal ---
+
+[[action]]
+name = "Activate"
+kind = "internal"
+from = ["Set"]
+to = "Active"
+effect = "set is_active true"
+hint = "Activate the goal. From now the harness breeds the lineage toward it. The human's go signal."
+
+# --- The harness records a completed generation against the goal ---
+
+[[action]]
+name = "RecordGeneration"
+kind = "input"
+from = ["Active"]
+effect = "increment generations_run"
+params = ["generation", "gene", "fitness", "outcome"]
+hint = "Record one completed generation for this lineage: which generation, which gene moved, the measured fitness, and the outcome (survived|culled)."
+
+# --- Terminal transitions ---
+
+[[action]]
+name = "Achieve"
+kind = "internal"
+from = ["Active"]
+to = "Achieved"
+hint = "Mark the goal achieved once the lineage's champion meets the target."
+
+[[action]]
+name = "Retire"
+kind = "input"
+from = ["Set", "Active"]
+to = "Retired"
+params = ["reason"]
+hint = "Retire the goal (superseded, abandoned, or redirected)."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "AchievedIsFinal"
+when = ["Achieved"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RetiredIsFinal"
+when = ["Retired"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "ActiveRequiresActivation"
+when = ["Active", "Achieved"]
+assert = "is_active"

@@ -1,0 +1,114 @@
+# Speciation Entity — I/O Automaton Specification
+#
+# A governed workload-speciation run (ADR-0102). The breeder agent classifies a
+# set of queues into one niche FROM TELEMETRY ONLY (no workload-config read), then
+# isolates that niche onto a dedicated, niche-tuned Helix cluster and migrates the
+# matching queues onto it. The Speciation entity is the convergence ledger: it
+# records "niche X is isolated onto cluster Y covering queues {…}" so the loop is
+# idempotent (it never re-splits an already-isolated niche) and the timeline shows
+# niche -> cluster -> migrated queues as one auditable governed unit.
+#
+#   Proposed --ProvisionCluster--> Provisioning --RecordCluster--> (cluster linked)
+#       Provisioning --BeginMigration--> Migrating --RecordMigrations--> (moves linked)
+#       Migrating --MarkConverged--> Converged | --MarkFailed--> Failed
+#
+# The niche cluster carries a niche-specific genome (real Helix knobs: linger_ms /
+# max_inflight / append_batch_size) committed to df-niche/<niche> and built into
+# the image — so each niche cluster is genuinely tuned, not just isolated.
+
+[automaton]
+name = "Speciation"
+states = ["Proposed", "Provisioning", "Migrating", "Converged", "Failed"]
+initial = "Proposed"
+
+# --- State Variables ---
+
+[[state]]
+name = "cluster_recorded"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "migrations_recorded"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Propose"
+kind = "input"
+from = ["Proposed"]
+effect = "noop"
+params = ["niche", "queues", "target_cluster", "genome", "motivation"]
+hint = "Propose isolating one niche (e.g. bursty / low-latency / high-throughput-batch / steady) onto target_cluster, covering the comma-separated queues. genome is the niche-specific Helix tuning (JSON); motivation is the telemetry-derived rationale. queues come from telemetry tags, NOT from reading Queue entities."
+
+[[action]]
+name = "ProvisionCluster"
+kind = "internal"
+from = ["Proposed"]
+to = "Provisioning"
+effect = "noop"
+hint = "Begin provisioning the niche-tuned cluster (reuse a Live df-niche/<niche> cluster, else commit the genome and Cloud Build)."
+
+[[action]]
+name = "RecordCluster"
+kind = "input"
+from = ["Provisioning"]
+effect = "set cluster_recorded true"
+params = ["cluster_id", "image_tag"]
+hint = "Link the niche cluster once it is Live: the Cluster entity id and the built image tag carrying the niche genome."
+
+[[action]]
+name = "BeginMigration"
+kind = "internal"
+from = ["Provisioning"]
+to = "Migrating"
+guard = "is_true cluster_recorded"
+hint = "Begin migrating the matching queues onto the niche cluster (one Migration per queue)."
+
+[[action]]
+name = "RecordMigrations"
+kind = "input"
+from = ["Migrating"]
+effect = "set migrations_recorded true"
+params = ["migration_ids", "moved"]
+hint = "Record the Migration entity ids created for this speciation and which queues' workloads (moved) were relocated onto the niche cluster."
+
+[[action]]
+name = "MarkConverged"
+kind = "internal"
+from = ["Migrating"]
+to = "Converged"
+guard = "is_true migrations_recorded"
+hint = "Land the speciation as Converged once the niche cluster is Live and the matching queues run on it. The ledger now asserts this niche is isolated."
+
+[[action]]
+name = "MarkFailed"
+kind = "internal"
+from = ["Provisioning", "Migrating"]
+to = "Failed"
+effect = "noop"
+hint = "Land the speciation as Failed if the niche cluster did not come up or the migrations did not complete."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "ConvergedRequiresCluster"
+when = ["Converged"]
+assert = "cluster_recorded"
+
+[[invariant]]
+name = "ConvergedRequiresMigrations"
+when = ["Converged"]
+assert = "migrations_recorded"
+
+[[invariant]]
+name = "ConvergedIsFinal"
+when = ["Converged"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

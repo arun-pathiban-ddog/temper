@@ -1,0 +1,75 @@
+# Producer Entity — I/O Automaton Specification
+#
+# A governed Kafka load producer for the Directed Evolution Workloads tab
+# (ADR-0097). A Producer is Defined against a queue (topic) with a target
+# rate_per_sec, msg_size (bytes), and concurrency (parallel producer workers /
+# Deployment replicas), then Started. On Start the executor creates a real k8s
+# Deployment `producer-<id>` in the dark-factory namespace that drives produce
+# traffic at the configured rate. On Stop the executor deletes the Deployment.
+#
+# Auto-approved: NO human gate. Cedar permits a verified workload-operator/
+# supervisor to Define/Start/Stop/RecordResult. The kubectl that creates/deletes
+# the Deployment is performed by the executor against the dark-factory namespace
+# ONLY (ns + context pinned; reuses the ADR-0096 _kubectl chokepoint).
+
+[automaton]
+name = "Producer"
+states = ["Defined", "Running", "Stopped"]
+initial = "Defined"
+
+# --- State Variables ---
+
+[[state]]
+name = "defined"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_result"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Defined"]
+effect = "set defined true"
+params = ["queue", "rate_per_sec", "msg_size", "concurrency", "cluster", "shape", "shape_params"]
+hint = "Define the producer: queue (topic), rate_per_sec (target msgs/sec), msg_size (bytes/message), concurrency (parallel producer workers = Deployment replicas), cluster (the Helix cluster name it targets; empty = baseline 'helix'), shape (traffic shape: stable|bursty|ramp|batch), shape_params (JSON of shape-specific knobs e.g. burst_size/idle_ms/ramp_to)."
+
+[[action]]
+name = "Start"
+kind = "internal"
+from = ["Defined"]
+to = "Running"
+guard = "is_true defined"
+hint = "Start producing. Moves to Running; the executor creates the producer-<id> Deployment in dark-factory from here."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Running"]
+effect = "set has_result true"
+params = ["result"]
+hint = "Executor records the deploy/scheduling result + the exact kubectl run (audit trail) while the producer is Running."
+
+[[action]]
+name = "Stop"
+kind = "internal"
+from = ["Running"]
+to = "Stopped"
+hint = "Stop producing. Moves to Stopped; the executor deletes the producer-<id> Deployment."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "StoppedIsFinal"
+when = ["Stopped"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RunningRequiresDefinition"
+when = ["Running", "Stopped"]
+assert = "defined"

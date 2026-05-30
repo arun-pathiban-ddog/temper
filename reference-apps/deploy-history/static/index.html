@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Inline ◆ favicon so the browser never requests /favicon.ico (avoids a 404). -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='none'/%3E%3Cpath d='M8 1l7 7-7 7-7-7z' fill='%237c5cff'/%3E%3C/svg%3E" />
+  <title>Directed Evolution — Control Plane</title>
+
+  <!-- diff2html: GitHub-style syntax-highlighted diffs, no build step -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css"
+  />
+  <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
+
+  <!-- d3 + dagre: left-to-right DAG layout for the git/worktree tree (no build step) -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◆</span>
+      <div class="brand-text">
+        <div class="brand-title">Directed Evolution</div>
+        <div class="brand-sub">Control Plane</div>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="clusters">Clusters</button>
+      <button class="tab" data-view="runs">Agent Runs</button>
+      <button class="tab" data-view="symphony">Symphony</button>
+      <button class="tab" data-view="evolution">🧬 Evolution</button>
+    </nav>
+    <div class="topbar-meta">
+      <span class="pill pill-tenant">tenant: dark-factory</span>
+      <span id="health-pill" class="pill pill-muted">checking…</span>
+    </div>
+  </header>
+
+  <!-- ===================== CLUSTERS VIEW (home) ===================== -->
+  <main class="view view-clusters" id="view-clusters">
+    <div class="control-wrap">
+      <!-- Git / worktree tree (left-to-right DAG) -->
+      <section class="cp-card">
+        <div class="cp-card-head">
+          <span class="cp-card-title">Helix lineage — git history &amp; worktrees</span>
+          <span class="cp-card-sub">each node is a deployable point; chips show the cluster deployed there</span>
+          <button id="tree-refresh" class="cp-btn cp-btn-ghost" style="margin-left:auto">Refresh</button>
+        </div>
+        <div class="cp-card-body">
+          <div id="tree-canvas" class="tree-canvas"><div class="loading">Loading lineage…</div></div>
+        </div>
+      </section>
+
+      <!-- Clusters table -->
+      <section class="cp-card">
+        <div class="cp-card-head">
+          <span class="cp-card-title">Helix clusters</span>
+          <button id="cluster-create-btn" class="cp-btn cp-btn-primary" style="margin-left:auto">+ Create cluster</button>
+        </div>
+        <div class="cp-card-body">
+          <div class="cl-table-wrap">
+            <table class="cl-table" id="clusters-table">
+              <thead>
+                <tr>
+                  <th>Cluster</th><th>State</th><th>Version</th><th>Replicas</th>
+                  <th>Queues &amp; workloads</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="clusters-tbody">
+                <tr><td colspan="6" class="loading">Loading clusters…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ===================== CLUSTER DETAIL VIEW ===================== -->
+  <main class="view view-cluster-detail hidden" id="view-cluster-detail">
+    <div class="control-wrap">
+      <button id="detail-back" class="cp-btn cp-btn-ghost detail-back">← Back to clusters</button>
+      <div id="cluster-detail-body"><div class="loading">Loading cluster…</div></div>
+    </div>
+  </main>
+
+  <!-- ===================== SYMPHONY VIEW ===================== -->
+  <main class="view view-symphony hidden" id="view-symphony">
+    <div class="control-wrap sym-wrap">
+      <div class="cp-card-head sym-head">
+        <span class="cp-card-title">Symphony — improvement pipeline</span>
+        <span class="cp-card-sub">each ImprovementIssue across the loop; Symphony (C1) turns <code>Implementing</code> issues into a Helix PR</span>
+        <button id="sym-refresh" class="cp-btn cp-btn-ghost" style="margin-left:auto">Refresh</button>
+      </div>
+      <div id="sym-board" class="sym-board"><div class="loading">Loading pipeline…</div></div>
+      <div id="sym-failed" class="sym-failed"></div>
+    </div>
+  </main>
+
+  <!-- ===================== BREEDS VIEW ===================== -->
+  <main class="view view-breeds hidden" id="view-breeds">
+    <div class="control-wrap">
+      <!-- Global goals: the population-wide selective pressure -->
+      <section class="cp-card">
+        <div class="cp-card-head">
+          <span class="cp-card-title">Global selective pressure</span>
+          <span class="cp-card-sub">system-wide fitness goals the breeder optimizes the whole population toward</span>
+          <button id="goal-add-btn" class="cp-btn cp-btn-primary" style="margin-left:auto">+ Add goal</button>
+          <button id="breeds-refresh" class="cp-btn cp-btn-ghost">Refresh</button>
+        </div>
+        <div class="cp-card-body">
+          <div id="breeds-global-goals" class="goal-grid"><div class="loading">Loading goals…</div></div>
+        </div>
+      </section>
+
+      <!-- The telemetry firewall, made visible -->
+      <section class="cp-card">
+        <div class="cp-card-head">
+          <span class="cp-card-title">Breeding agent</span>
+          <span class="cp-card-sub">infers workload niches from Datadog telemetry only — Cedar-forbidden from reading the workload spec</span>
+        </div>
+        <div class="cp-card-body">
+          <div id="breeds-firewall" class="firewall-strip"><div class="loading">Checking firewall…</div></div>
+        </div>
+      </section>
+
+      <!-- Per-cluster niches: each cluster's goals + the breeds produced for it -->
+      <section class="cp-card">
+        <div class="cp-card-head">
+          <span class="cp-card-title">Clusters &amp; breeds</span>
+          <span class="cp-card-sub">per-niche goals + every breed produced, its motivation (→ Symphony) and result</span>
+        </div>
+        <div class="cp-card-body">
+          <div id="breeds-clusters" class="breeds-clusters"><div class="loading">Loading breeds…</div></div>
+        </div>
+      </section>
+
+      <!-- Migrations: the governed queue-moves that realize speciation -->
+      <section class="cp-card">
+        <div class="cp-card-head">
+          <span class="cp-card-title">Migrations</span>
+          <span class="cp-card-sub">governed queue moves — relocating a queue's workloads to its niche cluster (speciation)</span>
+          <button id="mig-add-btn" class="cp-btn cp-btn-primary" style="margin-left:auto">+ Migrate queue</button>
+        </div>
+        <div class="cp-card-body">
+          <div id="breeds-migrations" class="migrations-list"><div class="loading">Loading migrations…</div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ===================== AGENT RUNS VIEW ===================== -->
+  <main class="view view-runs hidden" id="view-runs">
+    <div class="control-wrap">
+      <!-- Scheduler control panel -->
+      <section class="cp-card sched-card">
+        <div class="cp-card-head">
+          <span class="cp-card-title">Loop scheduler</span>
+          <span class="cp-card-sub">run the Directed Evolution agents on a cron</span>
+          <span id="sched-status" class="sched-status sched-off">stopped</span>
+          <button id="sched-toggle" class="cp-btn cp-btn-primary" style="margin-left:auto">Start loop</button>
+        </div>
+        <div class="cp-card-body">
+          <div class="sched-warn">⚠ Autonomous when running — agents edit Helix code and deploy to GKE on their intervals, unattended. Default off.</div>
+          <div id="sched-agents" class="sched-agents"></div>
+        </div>
+      </section>
+
+      <div class="cp-card-head runs-head">
+        <span class="cp-card-title">Agent runs</span>
+        <span class="cp-card-sub">every loop-agent pass, newest first — what each agent did + what it produced</span>
+        <div id="runs-filter" class="runs-filter"></div>
+        <button id="runs-refresh" class="cp-btn cp-btn-ghost">Refresh</button>
+      </div>
+      <div id="runs-timeline" class="runs-timeline"><div class="loading">Loading runs…</div></div>
+    </div>
+  </main>
+
+  <!-- ===================== MODAL HOST ===================== -->
+  <div id="modal-host" class="modal-host hidden">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-panel" id="modal-panel" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <!-- ===================== CONTROL PLANE VIEW ===================== -->
+  <main class="view view-control hidden" id="view-control">
+    <div class="control-wrap">
+      <!-- Cluster status card -->
+      <section class="cp-card" id="cluster-card">
+        <div class="cp-card-head">
+          <span class="cp-card-title">Helix Cluster</span>
+          <span id="cluster-pill" class="pill pill-muted">loading…</span>
+        </div>
+        <div id="cluster-body" class="cp-card-body">
+          <div class="loading">Reading cluster state…</div>
+        </div>
+      </section>
+
+      <div class="cp-grid">
+        <!-- Start deployment -->
+        <section class="cp-card">
+          <div class="cp-card-head"><span class="cp-card-title">Start Deployment</span></div>
+          <div class="cp-card-body">
+            <label class="cp-label" for="image-select">Image tag</label>
+            <div class="cp-row">
+              <select id="image-select" class="cp-select"></select>
+              <button id="deploy-btn" class="cp-btn cp-btn-primary">Deploy</button>
+            </div>
+            <div id="image-desc" class="cp-image-desc">
+              <span id="image-desc-text" class="cp-image-desc-text"></span>
+              <a id="browse-code" class="cp-browse-link" href="#" role="button">Browse code →</a>
+            </div>
+            <div id="code-browser" class="cp-code-browser hidden"></div>
+            <button id="rollback-btn" class="cp-btn cp-btn-ghost cp-rollback">Rollback live cluster</button>
+            <div id="deploy-flow" class="cp-flow"></div>
+          </div>
+        </section>
+
+        <!-- Scale -->
+        <section class="cp-card">
+          <div class="cp-card-head"><span class="cp-card-title">Scale Cluster</span></div>
+          <div class="cp-card-body">
+            <div class="cp-label">Target replicas</div>
+            <div class="cp-stepper">
+              <button id="scale-dec" class="cp-step-btn" aria-label="Decrease target replicas" title="Decrease">−</button>
+              <span id="scale-n" class="cp-step-n" aria-live="polite">3</span>
+              <button id="scale-inc" class="cp-step-btn" aria-label="Increase target replicas" title="Increase">+</button>
+              <button id="scale-btn" class="cp-btn cp-btn-primary">Apply scale</button>
+            </div>
+            <div class="cp-note">Note: scaling above the current node count may not schedule on the shared cluster.</div>
+            <div id="scale-flow" class="cp-flow"></div>
+          </div>
+        </section>
+      </div>
+
+      <p class="cp-governance">
+        Every action flows through a governed Temper entity
+        (<code>Deploy</code> / <code>ScaleOp</code>): create → Request →
+        <b>human Approve</b> (the supervisor at the wheel) → Apply →
+        ns-pinned <code>kubectl</code> executor → record → land. The Approve
+        button is the Cedar gate.
+      </p>
+    </div>
+  </main>
+
+  <!-- ===================== WORKLOADS VIEW ===================== -->
+  <main class="view view-control hidden" id="view-workloads">
+    <div class="control-wrap">
+      <div class="cp-card-head wl-head">
+        <span class="cp-card-title">Workloads</span>
+        <span id="wl-brokers" class="pill pill-muted">brokers…</span>
+        <button id="wl-refresh" class="cp-btn cp-btn-ghost wl-refresh-btn">Refresh</button>
+      </div>
+
+      <!-- Queues -->
+      <section class="cp-card">
+        <div class="cp-card-head"><span class="cp-card-title">Queues</span></div>
+        <div class="cp-card-body">
+          <div class="cp-row wl-form">
+            <label class="wl-field wl-grow"><span class="wl-field-label">Topic name</span>
+              <input id="q-name" class="cp-select wl-input" placeholder="e.g. orders-2" /></label>
+            <label class="wl-field"><span class="wl-field-label">Partitions</span>
+              <input id="q-parts" class="cp-select wl-input wl-input-sm" type="number" min="1" max="50" value="3" title="partitions" /></label>
+            <button id="q-create" class="cp-btn cp-btn-primary">Create queue</button>
+          </div>
+          <div id="wl-queues" class="wl-list"><div class="loading">Loading…</div></div>
+          <div id="q-flow" class="cp-flow"></div>
+        </div>
+      </section>
+
+      <!-- Producers -->
+      <section class="cp-card">
+        <div class="cp-card-head"><span class="cp-card-title">Producers</span></div>
+        <div class="cp-card-body">
+          <div class="cp-row wl-form">
+            <label class="wl-field wl-grow"><span class="wl-field-label">Queue</span>
+              <select id="p-queue" class="cp-select wl-input" title="target queue"></select></label>
+            <label class="wl-field"><span class="wl-field-label">Rate /s</span>
+              <input id="p-rate" class="cp-select wl-input wl-input-sm" type="number" min="1" max="5000" value="500" title="messages produced per second" /></label>
+            <label class="wl-field"><span class="wl-field-label">Msg size (B)</span>
+              <input id="p-size" class="cp-select wl-input wl-input-sm" type="number" min="1" max="65536" value="512" title="message payload size in bytes" /></label>
+            <label class="wl-field"><span class="wl-field-label">Concurrency</span>
+              <input id="p-conc" class="cp-select wl-input wl-input-sm" type="number" min="1" max="5" value="2" title="parallel producer replicas" /></label>
+            <button id="p-create" class="cp-btn cp-btn-primary">Add producer</button>
+          </div>
+          <div id="wl-producers" class="wl-list"><div class="loading">Loading…</div></div>
+          <div id="p-flow" class="cp-flow"></div>
+        </div>
+      </section>
+
+      <!-- Consumers -->
+      <section class="cp-card">
+        <div class="cp-card-head"><span class="cp-card-title">Consumers</span></div>
+        <div class="cp-card-body">
+          <div class="cp-row wl-form">
+            <label class="wl-field wl-grow"><span class="wl-field-label">Queue</span>
+              <select id="c-queue" class="cp-select wl-input" title="target queue"></select></label>
+            <label class="wl-field"><span class="wl-field-label">Process ms/msg</span>
+              <input id="c-proc" class="cp-select wl-input wl-input-sm" type="number" min="0" max="60000" value="5" title="simulated processing time per message (the process-time knob)" /></label>
+            <label class="wl-field"><span class="wl-field-label">Concurrency</span>
+              <input id="c-conc" class="cp-select wl-input wl-input-sm" type="number" min="1" max="5" value="2" title="parallel consumer replicas" /></label>
+            <button id="c-create" class="cp-btn cp-btn-primary">Add consumer</button>
+          </div>
+          <div id="wl-consumers" class="wl-list"><div class="loading">Loading…</div></div>
+          <div id="c-flow" class="cp-flow"></div>
+        </div>
+      </section>
+
+      <p class="cp-governance">
+        Every queue / producer / consumer flows through a governed Temper entity
+        (<code>Queue</code> / <code>Producer</code> / <code>Consumer</code>):
+        create → Define → Start → ns-pinned <code>kubectl</code> executor →
+        record. Workloads are <b>auto-approved</b> (no human gate) — the entity
+        lifecycle + Cedar (verified supervisor) + audit trail are the governance.
+        Real <code>producer-*</code>/<code>consumer-*</code> Deployments drive
+        live Kafka traffic against Helix.
+      </p>
+    </div>
+  </main>
+
+  <!-- ===================== OBSERVE (HISTORY) VIEW ===================== -->
+  <main class="view layout hidden" id="view-observe">
+    <!-- LEFT: history list -->
+    <section class="history" id="history">
+      <h2 class="section-title">
+        Deployments
+        <span id="deploy-count" class="count-badge"></span>
+      </h2>
+      <div id="history-list" class="history-list">
+        <div class="loading">Loading deployments…</div>
+      </div>
+    </section>
+
+    <!-- RIGHT: detail -->
+    <section class="detail" id="detail">
+      <div class="empty-state" id="empty-state">
+        <div class="empty-glyph">◆</div>
+        <p>Select a deployment to view its changelog,<br />governed timeline, and code diff.</p>
+      </div>
+      <div id="detail-content" class="detail-content hidden"></div>
+    </section>
+  </main>
+
+  <!-- ===================== EVOLUTION VIEW ===================== -->
+  <main class="view hidden" id="view-evolution" style="padding:24px;max-width:900px;margin:0 auto;">
+    <h2 class="section-title" style="margin-bottom:12px;">
+      Live Evolution Loop
+      <span id="evo-phase-badge" class="pill pill-muted" style="margin-left:8px;font-size:12px;">idle</span>
+    </h2>
+    <p class="text-muted" id="evo-message" style="margin-bottom:20px;">Evolution loop not running.</p>
+
+    <!-- Stage progress bar -->
+    <div id="evo-stage-block" class="hidden" style="margin-bottom:24px;">
+      <div style="display:flex;gap:16px;margin-bottom:8px;">
+        <span id="evo-stage-label" style="font-weight:600;font-size:14px;"></span>
+        <span id="evo-lineage-label" class="pill pill-muted" style="font-size:12px;"></span>
+        <span id="evo-goal-label" class="pill pill-muted" style="font-size:12px;"></span>
+      </div>
+      <div style="background:#e5e7eb;border-radius:4px;height:8px;margin-bottom:4px;">
+        <div id="evo-progress-bar" style="background:#6366f1;border-radius:4px;height:8px;width:0;transition:width 0.5s;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;">
+        <span id="evo-variant-count"></span>
+        <span id="evo-baseline"></span>
+      </div>
+    </div>
+
+    <!-- Champion banner -->
+    <div id="evo-champion-banner" class="hidden" style="background:#d1fae5;border:1px solid #34d399;border-radius:8px;padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:20px;">🏆</span>
+      <div>
+        <div style="font-weight:600;font-size:14px;" id="evo-champion-title"></div>
+        <div style="font-size:12px;color:#047857;" id="evo-champion-sub"></div>
+      </div>
+    </div>
+
+    <!-- History table -->
+    <div id="evo-history-block" class="hidden">
+      <h3 style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Variant History</h3>
+      <table style="width:100%;font-size:13px;border-collapse:collapse;" id="evo-history-table">
+        <thead>
+          <tr style="border-bottom:2px solid #e5e7eb;text-align:left;">
+            <th style="padding:6px 8px;">Variant</th>
+            <th style="padding:6px 8px;">Stage</th>
+            <th style="padding:6px 8px;">Outcome</th>
+            <th style="padding:6px 8px;">Δ (%)</th>
+            <th style="padding:6px 8px;">Description</th>
+          </tr>
+        </thead>
+        <tbody id="evo-history-body"></tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:20px;font-size:11px;color:#9ca3af;" id="evo-updated-at"></div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+# CIRun Entity — I/O Automaton Specification
+#
+# The verification capability of the Dark Factory. A CIRun tests a Helix
+# branch/ref. The actual execution (cargo test --workspace, plus where DST and
+# TLA model checking would run) is performed by an out-of-band executor
+# (executors/ci_run_executor.py) which polls for runs in the Running state,
+# runs the suite against the Helix repo, and calls RecordResult.
+
+[automaton]
+# NOTE: the platform derives the canonical entity type from the FILENAME
+# (ci_run.ioa.toml -> CiRun), not from this name. The CSDL EntityType is
+# therefore "CiRun" while the entity SET (the collection C1/C2 call) is
+# "CIRuns" per the contract. See ADR-0093.
+name = "CiRun"
+states = ["Pending", "Running", "Passed", "Failed"]
+initial = "Pending"
+
+# --- State Variables ---
+
+[[state]]
+name = "issue_set"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_report"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Start"
+kind = "internal"
+from = ["Pending"]
+to = "Running"
+effect = "set issue_set true"
+params = ["issue_id", "repo", "ref"]
+hint = "Start the run for a given issue, repo, and ref (branch/sha). Moves to Running; the CIRun executor picks it up from here."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Running"]
+effect = "set has_report true"
+params = ["status", "report", "exit_code"]
+hint = "Executor records the outcome: status ('passed'/'failed'), a short report, and the cargo test exit_code."
+
+[[action]]
+name = "MarkPassed"
+kind = "internal"
+from = ["Running"]
+to = "Passed"
+guard = "is_true has_report"
+hint = "Land the run as Passed once a result has been recorded."
+
+[[action]]
+name = "MarkFailed"
+kind = "internal"
+from = ["Running"]
+to = "Failed"
+guard = "is_true has_report"
+hint = "Land the run as Failed once a result has been recorded."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "PassedIsFinal"
+when = ["Passed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "TerminalRequiresReport"
+when = ["Passed", "Failed"]
+assert = "has_report"

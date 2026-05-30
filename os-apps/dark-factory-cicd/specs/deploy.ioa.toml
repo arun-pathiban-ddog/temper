@@ -1,0 +1,102 @@
+# Deploy Entity — I/O Automaton Specification
+#
+# The Cedar-gated deploy capability of the Dark Factory. A Deploy may not roll
+# out to the cluster until a human approves it (Approve is Cedar-gated to
+# humans/supervisors). The actual rollout (kubectl set image / kubectl rollout
+# against the dark-factory namespace ONLY) is performed by an out-of-band
+# executor (executors/deploy_executor.py) which polls for deploys in the
+# Rolling state, runs kubectl (dry-run by default), and calls RecordResult.
+
+[automaton]
+name = "Deploy"
+states = ["Pending", "Approved", "Rolling", "Live", "RolledBack"]
+initial = "Pending"
+
+# --- State Variables ---
+
+[[state]]
+name = "issue_set"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "approved"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_result"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Request"
+kind = "input"
+from = ["Pending"]
+effect = "set issue_set true"
+params = ["issue_id", "image_tag"]
+hint = "Request a deploy for an issue with a given image tag. Stays Pending until a human approves."
+
+[[action]]
+name = "Approve"
+kind = "internal"
+from = ["Pending"]
+to = "Approved"
+effect = "set approved true"
+hint = "Approve the deploy. Human/supervisor only (Cedar-gated). Required before any rollout."
+
+[[action]]
+name = "Apply"
+kind = "internal"
+from = ["Approved"]
+to = "Rolling"
+guard = "is_true approved"
+hint = "Begin the rollout. Moves to Rolling; the Deploy executor runs kubectl (dry-run by default) against the dark-factory namespace from here."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Rolling"]
+effect = "set has_result true"
+params = ["result", "rollout_cmd", "dry_run"]
+hint = "Executor records the rollout result, the exact kubectl command run (rollout_cmd), and whether it was a dry_run."
+
+[[action]]
+name = "MarkLive"
+kind = "internal"
+from = ["Rolling"]
+to = "Live"
+guard = "is_true has_result"
+hint = "Land the deploy as Live once the rollout succeeded and a result was recorded."
+
+[[action]]
+name = "Rollback"
+kind = "internal"
+from = ["Rolling"]
+to = "RolledBack"
+guard = "is_true has_result"
+hint = "Land the deploy as RolledBack if the rollout failed and a result was recorded."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "LiveIsFinal"
+when = ["Live"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RolledBackIsFinal"
+when = ["RolledBack"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "RollingRequiresApproval"
+when = ["Rolling", "Live", "RolledBack"]
+assert = "approved"
+
+[[invariant]]
+name = "TerminalRequiresResult"
+when = ["Live", "RolledBack"]
+assert = "has_result"

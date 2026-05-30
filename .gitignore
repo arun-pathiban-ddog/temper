@@ -70,3 +70,13 @@ scripts/generate-graph-json.js
 .desloppify/
 scorecard.png
 temper-e2e-test.db
+
+# Directed Evolution demo — secrets & local state (do not commit)
+reference-apps/identity/tokens.json
+reference-apps/**/__pycache__/
+reference-apps/**/.venv/
+reference-apps/**/*.sqlite
+reference-apps/**/*.sqlite-*
+reference-apps/**/*.db
+reference-apps/**/*.log
+reference-apps/deploy-history/**/node_modules/

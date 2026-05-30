@@ -1,0 +1,3 @@
+name = "dark-factory-cicd"
+description = "Dark Factory CI/CD + governance for Helix: ImprovementIssue tracker, CIRun verification, Cedar-gated Deploy"
+version = "0.1.0"

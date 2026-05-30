@@ -1,0 +1,371 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dark Factory CI/CD OS App
+  OData v4 data model for the Helix improvement loop:
+  ImprovementIssue (tracker), CIRun (verification), Deploy (Cedar-gated rollout).
+
+  Field names are copied verbatim from docs/dark-factory-BC-contract.md
+  §"Shared entities" (the contract is the lock). Four additive nullable fields
+  are flagged in ADR-0093: ImprovementIssue.UpdatedAt, CIRun.ExitCode,
+  Deploy.RolloutCmd, Deploy.DryRun.
+-->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+
+    <Schema Namespace="Temper.Vocab" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <Term Name="StateMachine.States" Type="Collection(Edm.String)" AppliesTo="EntityType"/>
+      <Term Name="StateMachine.InitialState" Type="Edm.String" AppliesTo="EntityType"/>
+      <Term Name="StateMachine.ValidFromStates" Type="Collection(Edm.String)" AppliesTo="Action"/>
+      <Term Name="StateMachine.TargetState" Type="Edm.String" AppliesTo="Action"/>
+      <Term Name="Agent.Hint" Type="Edm.String" AppliesTo="Action Function EntityType"/>
+      <Term Name="ShardKey" Type="Edm.String" AppliesTo="EntityType"/>
+      <Term Name="AuthZ.CedarPolicy" Type="Edm.String" AppliesTo="EntityType Action Function"/>
+    </Schema>
+
+    <Schema Namespace="Temper.DarkFactory" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+
+      <!-- ============ ImprovementIssue ============ -->
+
+      <EntityType Name="ImprovementIssue">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String" Nullable="false"/>
+        <Property Name="Title" Type="Edm.String"/>
+        <Property Name="Hypothesis" Type="Edm.String"/>
+        <Property Name="TargetFile" Type="Edm.String"/>
+        <Property Name="Plan" Type="Edm.String"/>
+        <Property Name="AcceptanceCriteria" Type="Edm.String"/>
+        <Property Name="AssigneeId" Type="Edm.String"/>
+        <Property Name="PlannerId" Type="Edm.String"/>
+        <Property Name="BranchName" Type="Edm.String"/>
+        <Property Name="PrUrl" Type="Edm.String"/>
+        <Property Name="CiRunId" Type="Edm.String"/>
+        <Property Name="CiStatus" Type="Edm.String"/>
+        <Property Name="Evidence" Type="Edm.String"/>
+        <Property Name="CreatedAt" Type="Edm.DateTimeOffset"/>
+        <!-- ADR-0093 additive (nullable): bookkeeping -->
+        <Property Name="UpdatedAt" Type="Edm.DateTimeOffset"/>
+        <Annotation Term="Temper.Vocab.StateMachine.States">
+          <Collection>
+            <String>Observed</String><String>Researching</String><String>Planned</String>
+            <String>Implementing</String><String>Verifying</String><String>Deploying</String>
+            <String>Done</String><String>Failed</String>
+          </Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.InitialState" String="Observed"/>
+        <Annotation Term="Temper.Vocab.ShardKey" String="Id"/>
+        <Annotation Term="Temper.Vocab.AuthZ.CedarPolicy" String="policies/improvement_issue.cedar"/>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="The Dark Factory tracker for one Helix improvement: observed -> researched -> planned -> implemented -> verified -> deployed. Planner != approver; deploy is human-approved."/>
+      </EntityType>
+
+      <!-- ============ CIRun ============ -->
+
+      <EntityType Name="CiRun">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String" Nullable="false"/>
+        <Property Name="IssueId" Type="Edm.String"/>
+        <Property Name="Repo" Type="Edm.String"/>
+        <Property Name="Ref" Type="Edm.String"/>
+        <Property Name="Report" Type="Edm.String"/>
+        <Property Name="StartedAt" Type="Edm.DateTimeOffset"/>
+        <Property Name="FinishedAt" Type="Edm.DateTimeOffset"/>
+        <!-- ADR-0093 additive (nullable): raw cargo test exit code -->
+        <Property Name="ExitCode" Type="Edm.Int32"/>
+        <Annotation Term="Temper.Vocab.StateMachine.States">
+          <Collection>
+            <String>Pending</String><String>Running</String><String>Passed</String><String>Failed</String>
+          </Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.InitialState" String="Pending"/>
+        <Annotation Term="Temper.Vocab.ShardKey" String="Id"/>
+        <Annotation Term="Temper.Vocab.AuthZ.CedarPolicy" String="policies/ci_run.cedar"/>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="A verification run: cargo test --workspace (+ DST/TLA) against a Helix branch. Executor runs it when the run enters Running and calls RecordResult."/>
+      </EntityType>
+
+      <!-- ============ Deploy ============ -->
+
+      <EntityType Name="Deploy">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false"/>
+        <Property Name="Status" Type="Edm.String" Nullable="false"/>
+        <Property Name="IssueId" Type="Edm.String"/>
+        <Property Name="ImageTag" Type="Edm.String"/>
+        <Property Name="Namespace" Type="Edm.String" DefaultValue="dark-factory"/>
+        <Property Name="Result" Type="Edm.String"/>
+        <!-- ADR-0093 additive (nullable): audit trail of the rollout -->
+        <Property Name="RolloutCmd" Type="Edm.String"/>
+        <Property Name="DryRun" Type="Edm.Boolean" DefaultValue="true"/>
+        <Annotation Term="Temper.Vocab.StateMachine.States">
+          <Collection>
+            <String>Pending</String><String>Approved</String><String>Rolling</String>
+            <String>Live</String><String>RolledBack</String>
+          </Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.InitialState" String="Pending"/>
+        <Annotation Term="Temper.Vocab.ShardKey" String="Id"/>
+        <Annotation Term="Temper.Vocab.AuthZ.CedarPolicy" String="policies/deploy.cedar"/>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="A Cedar-gated rollout to the dark-factory namespace. Approve is human-only; Apply triggers the kubectl executor (dry-run by default)."/>
+      </EntityType>
+
+      <!-- ============ Bound Actions: ImprovementIssue ============ -->
+
+      <Action Name="Observe" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="title" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="hypothesis" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="target_file" Type="Edm.String"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Observed</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="Record the initial observation (title, hypothesis, target file)."/>
+      </Action>
+
+      <Action Name="BeginPlanning" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Observed</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Researching"/>
+      </Action>
+
+      <Action Name="AssignPlanner" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="planner_id" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Observed</String><String>Researching</String></Collection>
+        </Annotation>
+      </Action>
+
+      <Action Name="Assign" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="assignee_id" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Observed</String><String>Researching</String><String>Planned</String><String>Implementing</String></Collection>
+        </Annotation>
+      </Action>
+
+      <Action Name="WritePlan" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="plan" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="acceptance_criteria" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Researching</String></Collection>
+        </Annotation>
+      </Action>
+
+      <Action Name="RevisePlan" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="feedback" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Researching</String></Collection>
+        </Annotation>
+      </Action>
+
+      <Action Name="ApprovePlan" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Researching</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Planned"/>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="Human/supervisor only; the planner may not approve their own plan."/>
+      </Action>
+
+      <Action Name="StartWork" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="branch_name" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Planned</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Implementing"/>
+      </Action>
+
+      <Action Name="AttachPr" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="pr_url" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Implementing</String></Collection>
+        </Annotation>
+      </Action>
+
+      <Action Name="StartVerify" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="ci_run_id" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Implementing</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Verifying"/>
+      </Action>
+
+      <Action Name="RecordCiResult" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="ci_status" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Verifying</String></Collection>
+        </Annotation>
+      </Action>
+
+      <Action Name="MarkCiPassed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Verifying</String></Collection>
+        </Annotation>
+      </Action>
+
+      <Action Name="ApproveDeploy" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Verifying</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Deploying"/>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="Human only; the implementer may not approve their own deploy. Requires a passing CI run."/>
+      </Action>
+
+      <Action Name="MarkDone" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Deploying</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Done"/>
+      </Action>
+
+      <Action Name="Fail" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Parameter Name="reason" Type="Edm.String"/>
+        <ReturnType Type="Temper.DarkFactory.ImprovementIssue"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Observed</String><String>Researching</String><String>Planned</String><String>Implementing</String><String>Verifying</String><String>Deploying</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Failed"/>
+      </Action>
+
+      <!-- ============ Bound Actions: CIRun ============ -->
+
+      <Action Name="Start" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.CiRun"/>
+        <Parameter Name="issue_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="repo" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="ref" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.CiRun"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Pending</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Running"/>
+      </Action>
+
+      <Action Name="CIRunRecordResult" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.CiRun"/>
+        <Parameter Name="status" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="report" Type="Edm.String"/>
+        <Parameter Name="exit_code" Type="Edm.Int32"/>
+        <ReturnType Type="Temper.DarkFactory.CiRun"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Running</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="CIRun.RecordResult — bound action name disambiguated from Deploy.RecordResult."/>
+      </Action>
+
+      <Action Name="MarkPassed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.CiRun"/>
+        <ReturnType Type="Temper.DarkFactory.CiRun"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Running</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Passed"/>
+      </Action>
+
+      <Action Name="MarkFailed" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.CiRun"/>
+        <ReturnType Type="Temper.DarkFactory.CiRun"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Running</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Failed"/>
+      </Action>
+
+      <!-- ============ Bound Actions: Deploy ============ -->
+
+      <Action Name="Request" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.Deploy"/>
+        <Parameter Name="issue_id" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="image_tag" Type="Edm.String" Nullable="false"/>
+        <ReturnType Type="Temper.DarkFactory.Deploy"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Pending</String></Collection>
+        </Annotation>
+      </Action>
+
+      <Action Name="Approve" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.Deploy"/>
+        <ReturnType Type="Temper.DarkFactory.Deploy"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Pending</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Approved"/>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="Human/supervisor only (Cedar-gated). Required before any rollout."/>
+      </Action>
+
+      <Action Name="Apply" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.Deploy"/>
+        <ReturnType Type="Temper.DarkFactory.Deploy"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Approved</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Rolling"/>
+      </Action>
+
+      <Action Name="DeployRecordResult" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.Deploy"/>
+        <Parameter Name="result" Type="Edm.String" Nullable="false"/>
+        <Parameter Name="rollout_cmd" Type="Edm.String"/>
+        <Parameter Name="dry_run" Type="Edm.Boolean"/>
+        <ReturnType Type="Temper.DarkFactory.Deploy"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Rolling</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.Agent.Hint" String="Deploy.RecordResult — bound action name disambiguated from CIRun.RecordResult."/>
+      </Action>
+
+      <Action Name="MarkLive" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.Deploy"/>
+        <ReturnType Type="Temper.DarkFactory.Deploy"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Rolling</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="Live"/>
+      </Action>
+
+      <Action Name="Rollback" IsBound="true">
+        <Parameter Name="bindingParameter" Type="Temper.DarkFactory.Deploy"/>
+        <ReturnType Type="Temper.DarkFactory.Deploy"/>
+        <Annotation Term="Temper.Vocab.StateMachine.ValidFromStates">
+          <Collection><String>Rolling</String></Collection>
+        </Annotation>
+        <Annotation Term="Temper.Vocab.StateMachine.TargetState" String="RolledBack"/>
+      </Action>
+
+      <!-- ============ Entity Container ============ -->
+
+      <EntityContainer Name="DarkFactoryService">
+        <EntitySet Name="ImprovementIssues" EntityType="Temper.DarkFactory.ImprovementIssue"/>
+        <EntitySet Name="CIRuns" EntityType="Temper.DarkFactory.CiRun"/>
+        <EntitySet Name="Deploys" EntityType="Temper.DarkFactory.Deploy"/>
+      </EntityContainer>
+
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

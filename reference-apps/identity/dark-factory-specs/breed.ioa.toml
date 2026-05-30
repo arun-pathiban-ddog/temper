@@ -1,0 +1,113 @@
+# Breed Entity — I/O Automaton Specification
+#
+# A breed is one goal-directed variant produced by the breeding agent for a
+# specific cluster/niche under a FitnessGoal (ADR-0099). The breeder discovers
+# the niche from Datadog telemetry ONLY (it is Cedar-denied read on the workload
+# entities), proposes a breed with a motivation that links to a Symphony
+# ImprovementIssue, the change is built + verified, and selection lands it as
+# Promoted (the niche's new champion) or Culled (failed the gate, regressed the
+# goal, or busted the global budget) — with the reason recorded.
+#
+#   Proposed --StartBuild--> Building --RecordBuild--> Verifying
+#       Verifying --RecordResult--> (MarkPromoted | MarkCulled)
+#       Proposed/Building/Verifying --Cull--> Culled (early kill, e.g. firewall/budget)
+#
+# This is how speciation (a niche -> a new specialized cluster's champion) and
+# culling (an explicit, reasoned terminal state) become visible per cluster.
+
+[automaton]
+name = "Breed"
+states = ["Proposed", "Building", "Verifying", "Promoted", "Culled"]
+initial = "Proposed"
+
+# --- State Variables ---
+
+[[state]]
+name = "built"
+type = "bool"
+initial = "false"
+
+[[state]]
+name = "has_result"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Propose"
+kind = "input"
+from = ["Proposed"]
+effect = "noop"
+params = ["cluster_id", "niche", "fitness_goal_id", "issue_id", "gene", "motivation"]
+hint = "The breeder proposes a goal-directed variant: which cluster/niche, which FitnessGoal it serves, the Symphony issue_id carrying the motivation, the gene to mutate, and a short motivation string (inferred from telemetry only)."
+
+[[action]]
+name = "StartBuild"
+kind = "internal"
+from = ["Proposed"]
+to = "Building"
+hint = "Begin building the breed's image from its worktree (mirrors the Cluster build path)."
+
+[[action]]
+name = "RecordBuild"
+kind = "input"
+from = ["Building"]
+to = "Verifying"
+effect = "set built true"
+params = ["build_result"]
+hint = "Record the build result and move to verification (CIRun + DST run against the breed's branch)."
+
+[[action]]
+name = "RecordResult"
+kind = "input"
+from = ["Verifying"]
+effect = "set has_result true"
+params = ["perf_delta", "ci_status"]
+hint = "Record the measured outcome: the perf delta against the goal (e.g. +18% throughput / -22% p95) and the CI/DST status (passed|failed)."
+
+[[action]]
+name = "MarkPromoted"
+kind = "internal"
+from = ["Verifying"]
+to = "Promoted"
+guard = "is_true has_result"
+hint = "Land the breed as the niche's new champion: build passed, the goal improved, and the global budget held. Requires a recorded result."
+
+[[action]]
+name = "MarkCulled"
+kind = "internal"
+from = ["Verifying"]
+to = "Culled"
+guard = "is_true has_result"
+hint = "Cull the breed after verification: it failed the gate, regressed its FitnessGoal, or violated the global budget."
+
+[[action]]
+name = "Cull"
+kind = "input"
+from = ["Proposed", "Building", "Verifying"]
+to = "Culled"
+params = ["cull_reason"]
+hint = "Early cull from any pre-terminal state with a reason (e.g. DST durability violation, budget exceeded, superseded). Records cull_reason."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "PromotedRequiresResult"
+when = ["Promoted"]
+assert = "has_result"
+
+[[invariant]]
+name = "PromotedRequiresBuild"
+when = ["Promoted"]
+assert = "built"
+
+[[invariant]]
+name = "PromotedIsFinal"
+when = ["Promoted"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "CulledIsFinal"
+when = ["Culled"]
+assert = "no_further_transitions"

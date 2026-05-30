@@ -1,0 +1,59 @@
+# Queue Entity — I/O Automaton Specification
+#
+# A governed Kafka topic ("queue") for the Directed Evolution Workloads tab
+# (ADR-0097). A Queue is Defined with a name (the Kafka topic) + a partition
+# count, Activated (the executor ensures the topic exists / records intended
+# partitions; Helix auto-creates on first produce), and may be Deleted.
+#
+# Auto-approved: there is NO human gate. The lifecycle + Cedar (a verified
+# workload-operator/supervisor) are the governance. Mirrors the CIRun
+# non-gated spec pattern, not the ScaleOp human-gated one.
+
+[automaton]
+name = "Queue"
+states = ["Defined", "Active", "Deleted"]
+initial = "Defined"
+
+# --- State Variables ---
+
+[[state]]
+name = "defined"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Define"
+kind = "input"
+from = ["Defined"]
+effect = "set defined true"
+params = ["name", "partitions", "cluster"]
+hint = "Define the queue: name (the Kafka topic), partitions (intended partition count), cluster (the Helix cluster name it lives on; empty = baseline 'helix')."
+
+[[action]]
+name = "Activate"
+kind = "internal"
+from = ["Defined"]
+to = "Active"
+guard = "is_true defined"
+hint = "Activate the queue. The executor ensures the topic exists (Helix auto-creates on first produce); records intended partitions. Producers/consumers target an Active queue."
+
+[[action]]
+name = "Delete"
+kind = "internal"
+from = ["Defined", "Active"]
+to = "Deleted"
+hint = "Retire the queue. Producers/consumers should be stopped first; this marks the queue Deleted (the Kafka topic itself is left to Helix retention)."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "DeletedIsFinal"
+when = ["Deleted"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "ActiveRequiresDefinition"
+when = ["Active"]
+assert = "defined"

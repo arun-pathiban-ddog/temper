@@ -1,0 +1,74 @@
+# AgentRun Entity — I/O Automaton Specification
+#
+# One pass of a Directed Evolution loop agent (observer | researcher | symphony |
+# breeder). Created when the agent starts a pass; finalized with the summary the
+# agent computes + links to what it produced (ImprovementIssue / Breed / Deploy /
+# CIRun). Powers the Runs tab — a reverse-chron timeline of agent activity with a
+# summary of each run. See ADR-0100.
+#
+#   Running --RecordSummary--> Running   (record narrative + metrics + produced)
+#   Running --Finish--> Succeeded
+#   Running --Fail-----> Failed
+
+[automaton]
+name = "AgentRun"
+states = ["Running", "Succeeded", "Failed"]
+initial = "Running"
+
+# --- State Variables ---
+
+[[state]]
+name = "has_summary"
+type = "bool"
+initial = "false"
+
+# --- Actions ---
+
+[[action]]
+name = "Start"
+kind = "input"
+from = ["Running"]
+effect = "noop"
+params = ["agent_type", "trigger"]
+hint = "Record the start of an agent pass: which agent (observer|researcher|symphony|breeder) and what triggered it (e.g. a telemetry signal, a schedule, an Implementing issue)."
+
+[[action]]
+name = "RecordSummary"
+kind = "input"
+from = ["Running"]
+effect = "set has_summary true"
+params = ["summary", "metrics", "produced_ids"]
+hint = "Record the run's narrative summary, key metrics (JSON, e.g. niches_found/breeds_proposed/pr_url/p95_delta), and produced_ids (refs to the entities this run produced — ImprovementIssue/Breed/Deploy/CIRun)."
+
+[[action]]
+name = "Finish"
+kind = "internal"
+from = ["Running"]
+to = "Succeeded"
+guard = "is_true has_summary"
+hint = "Land the run as Succeeded once its summary has been recorded."
+
+[[action]]
+name = "Fail"
+kind = "input"
+from = ["Running"]
+to = "Failed"
+params = ["reason"]
+hint = "Land the run as Failed with a reason (the agent errored or produced nothing usable)."
+
+# --- Safety Invariants ---
+
+[[invariant]]
+name = "SucceededRequiresSummary"
+when = ["Succeeded"]
+assert = "has_summary"
+
+[[invariant]]
+name = "SucceededIsFinal"
+when = ["Succeeded"]
+assert = "no_further_transitions"
+
+[[invariant]]
+name = "FailedIsFinal"
+when = ["Failed"]
+assert = "no_further_transitions"

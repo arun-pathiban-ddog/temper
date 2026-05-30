@@ -1,0 +1,31 @@
+{
+  "captured_at": "2026-05-25",
+  "org": "gensim.datadoghq.com",
+  "_note": "Live helix.* metric catalog captured via Datadog MCP search_datadog_metrics(helix). This is the AVAILABLE-metric set the intent-coverage agent reasons over. workload.* (producer/consumer) metrics also exist, tagged queue/workload_id/role.",
+  "helix_metrics": [
+    {"name": "helix.produce.latency_ms.avg", "desc": "produce->commit latency, avg (ms)"},
+    {"name": "helix.produce.latency_ms.median", "desc": "produce->commit latency, p50 (ms)"},
+    {"name": "helix.produce.latency_ms.95percentile", "desc": "produce->commit latency, p95 (ms)"},
+    {"name": "helix.produce.latency_ms.max", "desc": "produce->commit latency, max (ms)"},
+    {"name": "helix.produce.latency_ms.count", "desc": "produce count (throughput proxy)"},
+    {"name": "helix.consume.fetch_latency_ms.avg", "desc": "consumer fetch latency, avg (ms)"},
+    {"name": "helix.consume.fetch_latency_ms.median", "desc": "consumer fetch latency, p50 (ms)"},
+    {"name": "helix.consume.fetch_latency_ms.95percentile", "desc": "consumer fetch latency, p95 (ms)"},
+    {"name": "helix.consume.fetch_latency_ms.max", "desc": "consumer fetch latency, max (ms)"},
+    {"name": "helix.consume.fetch_latency_ms.count", "desc": "consume fetch count"},
+    {"name": "helix.consume.fetched", "desc": "records fetched by consumers (count)"},
+    {"name": "helix.replication.lag", "desc": "raft replication lag (entries behind leader)"}
+  ],
+  "workload_metrics": [
+    {"name": "workload.producer.sent", "desc": "msgs produced per workload (count, tagged queue/workload_id/role)"},
+    {"name": "workload.producer.send_latency_ms", "desc": "client-side produce-call latency (ms)"},
+    {"name": "workload.consumer.consumed", "desc": "msgs consumed per workload (count)"},
+    {"name": "workload.consumer.lag", "desc": "consumer lag (gauge)"}
+  ],
+  "known_blindspots_examples": [
+    "no CPU / memory / cost metric (resource efficiency goals are unmeasured)",
+    "no produce/consume THROUGHPUT rate metric as a first-class gauge (only a count exists)",
+    "no per-broker disk / WAL size metric (durability/storage goals unmeasured)",
+    "no end-to-end produce->consume delivery latency (only the two legs separately)"
+  ]
+}
