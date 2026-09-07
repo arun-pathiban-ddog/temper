@@ -28,7 +28,7 @@ pub(super) fn validate(automaton: &Automaton) -> Result<(), AutomatonParseError>
         }
     }
     for field in &automaton.state {
-        if automaton.automaton.strict_action_params
+        if contracted
             && field.var_type == "counter"
             && field.initial.trim().parse::<usize>().is_err()
         {
@@ -37,7 +37,7 @@ pub(super) fn validate(automaton: &Automaton) -> Result<(), AutomatonParseError>
                 field.name
             )));
         }
-        if automaton.automaton.strict_action_params
+        if contracted
             && matches!(field.var_type.as_str(), "int" | "integer")
             && field.initial.trim().parse::<i64>().is_err()
         {
@@ -76,6 +76,11 @@ pub(super) fn validate(automaton: &Automaton) -> Result<(), AutomatonParseError>
             };
             if matches!(field_type, Some("list" | "set")) {
                 return Err(fail("collection field comparisons are not supported"));
+            }
+            if field_type.is_some_and(|kind| !matches!(kind, "string" | "bool" | "integer")) {
+                return Err(fail(
+                    "field comparisons require a string, boolean or integer",
+                ));
             }
             let required_type = match constraint {
                 ActionConstraint::ParamGreaterThanField { .. } => {
@@ -165,6 +170,57 @@ field = "sequence"
             .is_ok()
         );
     }
+    #[test]
+    fn rejects_invalid_numeric_defaults_for_constrained_non_strict_actors() {
+        for (field_type, value) in [("counter", "-1"), ("counter", "1.5"), ("integer", "1.5")] {
+            let source = spec(field_type, "\"value\"", "param_equals_field")
+                .replace(
+                    "strict_action_params = true",
+                    "strict_action_params = false",
+                )
+                .replace("initial = \"0\"", &format!("initial = \"{value}\""));
+            assert!(
+                parse_automaton(&source).is_err(),
+                "accepted {field_type} default {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_comparison_types_without_a_scalar_runtime_contract() {
+        for field_type in ["float", "number", "json", "object", "unknown"] {
+            for kind in ["param_equals_field", "param_not_equals_field"] {
+                let param = format!(r#"{{name="value",type="{field_type}"}}"#);
+                let source = spec(field_type, &param, kind);
+                assert!(
+                    parse_automaton(&source).is_err(),
+                    "accepted {kind} on {field_type}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn accepts_supported_comparison_types_and_preserves_uncontracted_defaults() {
+        for field_type in ["string", "status", "bool", "int", "integer", "counter"] {
+            let param = format!(r#"{{name="value",type="{field_type}"}}"#);
+            for kind in ["param_equals_field", "param_not_equals_field"] {
+                assert!(parse_automaton(&spec(field_type, &param, kind)).is_ok());
+            }
+        }
+        let source = spec("counter", "\"value\"", "param_equals_field")
+            .replace(
+                "strict_action_params = true",
+                "strict_action_params = false",
+            )
+            .replace("initial = \"0\"", "initial = \"-1\"");
+        let uncontracted = source
+            .split("[[action.constraints]]")
+            .next()
+            .expect("fixture has an automaton before its constraints");
+        assert!(parse_automaton(uncontracted).is_ok());
+    }
+
     #[test]
     fn rejects_invalid_strict_counter_default() {
         assert!(

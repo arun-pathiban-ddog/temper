@@ -82,7 +82,7 @@ fn invalid_create_body(message: &str) -> ODataWriteError {
 }
 
 fn prepare_collection_create_fields(
-    body: serde_json::Value,
+    body: &serde_json::Value,
     entity_type: &str,
     initial_status: &str,
 ) -> Result<(String, serde_json::Value), ODataWriteError> {
@@ -124,16 +124,6 @@ fn prepare_collection_create_fields(
             format!("{prefix}{}", temper_runtime::scheduler::sim_uuid())
         });
 
-    for key in ["status", "Status"] {
-        if let Some(value) = fields.get(key)
-            && value.as_str() != Some(initial_status)
-        {
-            return Err(invalid_create_body(&format!(
-                "{key} must equal the spec-defined initial state '{initial_status}'"
-            )));
-        }
-    }
-
     fields.retain(|key, _| !temper_spec::automaton::is_server_derived_field_name(key));
     for key in ["id", "Id"] {
         fields.insert(
@@ -148,6 +138,22 @@ fn prepare_collection_create_fields(
         );
     }
     Ok((entity_id, serde_json::Value::Object(fields)))
+}
+
+fn validate_collection_create_status(
+    body: &serde_json::Value,
+    initial_status: &str,
+) -> Result<(), ODataWriteError> {
+    for key in ["status", "Status"] {
+        if let Some(value) = body.get(key)
+            && value.as_str() != Some(initial_status)
+        {
+            return Err(invalid_create_body(&format!(
+                "{key} must equal the spec-defined initial state '{initial_status}'"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn resolve_entity_type_or_404(
@@ -510,10 +516,6 @@ pub async fn handle_odata_post(
                 Ok(t) => t,
                 Err(resp) => return *resp,
             };
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
-            }
-
             let body_json = match parse_json_body_or_400(&body) {
                 Ok(v) => v,
                 Err(resp) => return *resp,
@@ -527,16 +529,10 @@ pub async fn handle_odata_post(
                 }
             };
             let (entity_id, initial_fields) =
-                match prepare_collection_create_fields(body_json, &entity_type, &initial_status) {
+                match prepare_collection_create_fields(&body_json, &entity_type, &initial_status) {
                     Ok(prepared) => prepared,
                     Err(response) => return *response,
                 };
-            if let Err(error) =
-                state.validate_initial_entity_fields(&tenant, &entity_type, &initial_fields)
-            {
-                return odata_error(StatusCode::BAD_REQUEST, "StrictActionContract", &error)
-                    .into_response();
-            }
             if let Err(resp) = authorize_collection_create(
                 &state,
                 &tenant,
@@ -549,6 +545,18 @@ pub async fn handle_odata_post(
             .await
             {
                 return *resp;
+            }
+            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                return *resp;
+            }
+            if let Err(resp) = validate_collection_create_status(&body_json, &initial_status) {
+                return *resp;
+            }
+            if let Err(error) =
+                state.validate_initial_entity_fields(&tenant, &entity_type, &initial_fields)
+            {
+                return odata_error(StatusCode::BAD_REQUEST, "StrictActionContract", &error)
+                    .into_response();
             }
             let _commons_guardrail_lock = state.acquire_commons_write_guardrail_lock(&tenant).await;
 

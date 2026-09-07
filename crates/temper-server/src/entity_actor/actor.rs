@@ -773,7 +773,7 @@ impl EntityActor {
                             let frozen_bootstrap = event.action == "Created"
                                 && event.from_status.is_empty()
                                 && env.payload.get("initial_values").is_some();
-                            if event.action == "Created" && event.from_status.is_empty() {
+                            if frozen_bootstrap {
                                 if env.sequence_nr != 1 || state.total_event_count != 0 {
                                     return Err(ActorError::custom(
                                         "initial values require the first bootstrap event",
@@ -1046,7 +1046,7 @@ impl Actor for EntityActor {
 
         // Persist a bootstrap Created event for first-time entities so initial
         // fields are durable and replayable.
-        if self.event_journal.is_some() && state.total_event_count == 0 {
+        if self.event_journal.is_some() && state.sequence_nr == 0 && state.total_event_count == 0 {
             let initial_params =
                 super::effects::sanitize_action_params(&self.initial_fields).into_owned();
             let created = EntityEvent {

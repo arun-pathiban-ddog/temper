@@ -2,6 +2,96 @@
 use super::*;
 
 #[tokio::test]
+async fn legacy_bootstrap_after_skipped_history_remains_lenient() {
+    let mut malformed = envelope(1, "Unknown", "", "Draft");
+    malformed.payload = serde_json::json!({"action":42});
+    let mut created = envelope(2, "Created", "", "Draft");
+    created.payload["params"] = serde_json::json!({"Customer":"committed"});
+    let store = BoxedEventStore::new(StaticEventStore {
+        events: vec![malformed, created],
+        ..Default::default()
+    });
+    let recovered = recover_entity_state_from_store(
+        "default",
+        "Order",
+        "security-replay",
+        &order_table(),
+        &store,
+        BackendLabel::Turso,
+        &serde_json::json!({}),
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(recovered.sequence_nr, 2);
+    assert_eq!(recovered.fields["Customer"], "committed");
+    assert!(
+        recover_authoritative_entity_state_from_store(
+            "default",
+            "Order",
+            "security-replay",
+            &order_table(),
+            &store,
+            BackendLabel::Turso,
+            &serde_json::json!({}),
+            None,
+        )
+        .await
+        .is_err()
+    );
+}
+
+#[cfg(feature = "sim")]
+#[tokio::test]
+async fn skipped_history_does_not_append_a_fresh_bootstrap_on_restart() {
+    use std::time::Duration;
+    use temper_runtime::ActorSystem;
+    use temper_store_sim::SimEventStore;
+    for seed in 0..8 {
+        let journal = Arc::new(SimEventStore::no_faults(seed));
+        let mut malformed = envelope(1, "Unknown", "", "Draft");
+        malformed.payload = serde_json::json!({"action":42});
+        journal
+            .append("default:Order:security-replay", 0, &[malformed])
+            .await
+            .unwrap();
+        let system = ActorSystem::new("skip-restart");
+        for restart in 0..2 {
+            let actor = system.spawn(
+                EntityActor::with_persistence(
+                    "Order",
+                    "security-replay",
+                    Arc::new(RwLock::new(order_table())),
+                    serde_json::json!({"Customer":"uncommitted"}),
+                    BoxedEventStore::from_arc(journal.clone()),
+                    BackendLabel::Sim,
+                ),
+                format!("restart-{restart}"),
+            );
+            let recovered: EntityResponse = actor
+                .ask(EntityMsg::GetState, Duration::from_secs(2))
+                .await
+                .unwrap();
+            assert_eq!(
+                recovered.state.sequence_nr, 1,
+                "seed={seed}, restart={restart}"
+            );
+            assert_eq!(recovered.state.total_event_count, 0);
+            assert!(recovered.state.fields.get("Customer").is_none());
+            assert_eq!(
+                journal
+                    .read_events("default:Order:security-replay", 0)
+                    .await
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn round_four_recovery_does_not_invent_new_declared_fields() {
     let table = TransitionTable::from_ioa_source(
         r#"

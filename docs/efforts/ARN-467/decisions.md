@@ -300,3 +300,39 @@ The full workspace run also reached data-only creation, whose separate event ser
 **Chose the evaluation boundary because:** It keeps the policy's meaning independent of HTTP call depth without adding authority or increasing every thread's stack allocation. Evaluation uses up to an eight-megabyte stack and a remaining recursion-limit diagnostic refuses the request, even if another policy permitted it. Other Cedar evaluation-error behavior is unchanged.
 
 **Where:** crates/temper-authz/src/engine/mod.rs; engine/stack_tests.rs; crates/temper-authz/Cargo.toml.
+
+## D24 — Authorize collection creation before strict-field validation
+
+**Decision:** Apply Cedar to the proposed creation before returning strict-contract field errors.
+
+**Came up because:** The fresh panel found that an unauthorized caller could distinguish an identity-only body from a forbidden extra field by comparing 403 and 400 responses.
+
+**Options:** Keep schema validation first, obscure validation responses, or authorize the prepared resource before checking its strict field contract.
+
+**Chose authorization first because:** It applies the same ordering as declared actions while retaining the prospective fields that attribute-based creation policies need. Verification and initial-status errors use the same ordering because they also disclose the specification. Authorized invalid requests still fail before actor creation or journal changes.
+
+**Where:** crates/temper-server/src/odata/write.rs; tests/strict_creation_boundaries.rs.
+
+## D25 — Reject constraints whose declared values have no supported runtime meaning
+
+**Decision:** Validate numeric defaults for every contracted actor and restrict comparison field types to strings, booleans and integers.
+
+**Came up because:** A constrained non-strict actor accepted a negative counter default and materialized zero. The parser also accepted float and number comparisons although initialization retained those defaults as strings and numeric comparison required JSON integers.
+
+**Options:** Expand the runtime to support more numeric and structured types, accept impossible contracts, or reject unsupported declarations before installation.
+
+**Chose parser rejection because:** The existing contract and DSF callers use strings, booleans and integers. Installation must agree with initialization and comparison instead of silently substituting values or adding another numeric representation. Unconstrained non-strict specifications keep their existing default parsing.
+
+**Where:** crates/temper-spec/src/automaton/contracts.rs; docs/efforts/ARN-467/spec.md.
+
+## D26 — Distinguish skipped history from a new actor
+
+**Decision:** Require an empty durable sequence before writing a new bootstrap, and apply the committed-default position check only to events that contain committed defaults.
+
+**Came up because:** Two regressions reproduced the review's restart failure. Lenient replay refused a legacy Created event at sequence 2 after skipping an incompatible event. Startup also mistook a journal containing only skipped events for a new actor and appended committed defaults after that history.
+
+**Options:** Reject all legacy layouts, permit committed defaults anywhere in a journal, or distinguish an empty history from an empty count of successfully decoded events.
+
+**Chose the durable sequence because:** It prevents startup from inventing a new creation fact after existing history. Legacy lenient replay retains its previous behavior, while authoritative replay and the position requirement for committed defaults remain strict.
+
+**Where:** crates/temper-server/src/entity_actor/actor.rs; bootstrap_recovery_test.rs.
