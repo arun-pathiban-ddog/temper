@@ -499,3 +499,15 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Chose the existing contracts because:** FIFO delivery does not prove the submitted message ran; an enqueue acknowledgment is the accurate result. Compensation remains bounded without changing its service principal. Only closed mailboxes permit replacement, preserving healthy actors on timeout and keeping the durable entity index. D5/D34 deliberately advance cursor and version on deterministic refusal; this is not changed. D23's unconditional Cedar stack isolation remains intentional. The inherited random simulator's empty payload generation is a coverage limitation; current contract proofs use explicit payloads and are not represented as random coverage. D31's native DST exception remains unchanged.
 
 **Where:** crates/temper-server/src/odata/write.rs; state/dispatch/compensation.rs; state/entity_ops.rs; crates/temper-runtime/src/actor/actor_ref.rs; mailbox/mod.rs.
+
+## D40: Keep dispatch unit tests outside the production module
+
+**Decision:** Move the existing dispatch unit tests unchanged to dispatch_test.rs.
+
+**Came up because:** Passing the parent callback context added one line to a 500-line production file and the normal push readability gate refused it. The file included 67 lines of unit tests.
+
+**Options:** Relax the baseline, compress production code, or separate the existing tests using the repository's test-module convention.
+
+**Chose test separation because:** It preserves readable production code and all test behavior without increasing the allowed readability debt.
+
+**Where:** crates/temper-server/src/state/dispatch/mod.rs; crates/temper-server/src/state/dispatch/dispatch_test.rs.
