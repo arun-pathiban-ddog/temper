@@ -312,7 +312,7 @@ fn routed_messages_preserve_the_wire_contract_used_by_concrete_integration_actor
 }
 
 #[tokio::test]
-async fn round_three_raw_non_strict_constrained_input_keeps_its_parameters() {
+async fn raw_non_strict_constrained_input_keeps_its_parameters() {
     let source = STRICT.replace(
         "strict_action_params = true",
         "strict_action_params = false",
@@ -339,7 +339,7 @@ async fn round_three_raw_non_strict_constrained_input_keeps_its_parameters() {
 }
 
 #[tokio::test]
-async fn round_three_routed_null_source_means_no_generated_fields() {
+async fn routed_null_source_means_no_generated_fields() {
     let actor = actor(STRICT);
     let mut state = actor.initial_state();
     let mut incoming = message("Noop", serde_json::Value::Null, false);
@@ -365,7 +365,7 @@ async fn round_three_routed_null_source_means_no_generated_fields() {
 }
 
 #[tokio::test]
-async fn round_three_unconfigured_process_preserves_declared_application_fields() {
+async fn unconfigured_process_preserves_declared_application_fields() {
     let actor = actor(STRICT);
     let mut decoded: SpecActorState = serde_json::from_slice(&actor.initial_state()).unwrap();
     decoded.fields["response"] = json!("persistent application response");
@@ -394,7 +394,7 @@ async fn round_three_unconfigured_process_preserves_declared_application_fields(
 }
 
 #[test]
-fn round_three_non_strict_constrained_fresh_state_materializes_all_declared_defaults() {
+fn non_strict_constrained_fresh_state_materializes_all_declared_defaults() {
     let source = STRICT.replace(
         "strict_action_params = true",
         "strict_action_params = false",

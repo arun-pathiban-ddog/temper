@@ -98,8 +98,21 @@ impl ActorSystem {
         &self,
         namespace: &str,
         actor_type: &str,
-        fields: serde_json::Value,
+        mut fields: serde_json::Value,
     ) -> Result<ActorHandle, ActorError> {
+        if let Some(fields) = fields.as_object_mut() {
+            if let (Some(upper), Some(lower)) = (fields.get("Id"), fields.get("id"))
+                && upper != lower
+            {
+                return Err(ActorError::Rejected(
+                    "creation identity aliases disagree".into(),
+                ));
+            }
+            if let Some(identity) = fields.get("Id").or_else(|| fields.get("id")).cloned() {
+                fields.insert("Id".into(), identity.clone());
+                fields.insert("id".into(), identity);
+            }
+        }
         let handle = ActorHandle::new(namespace, actor_type);
 
         // Build initial state with fields pre-populated.
@@ -264,6 +277,18 @@ impl ActorSystem {
         namespace: &str,
         actor_type: &str,
     ) -> Result<Option<Vec<u8>>, ActorError> {
+        Ok(self
+            .load_state_with_version(namespace, actor_type)
+            .await?
+            .map(|(state, _)| state))
+    }
+
+    /// Read state and its authorization version from the same PostgreSQL row.
+    pub async fn load_state_with_version(
+        &self,
+        namespace: &str,
+        actor_type: &str,
+    ) -> Result<Option<(Vec<u8>, i64)>, ActorError> {
         let client = self
             .pool
             .get()
@@ -275,7 +300,9 @@ impl ActorSystem {
             .await
             .map_err(|e| ActorError::Internal(format!("load state: {e}")))?;
 
-        Ok(rows.first().map(|row| row.get::<_, Vec<u8>>("state")))
+        Ok(rows
+            .first()
+            .map(|row| (row.get("state"), row.get("version"))))
     }
 
     /// Load and deserialize spec actor state. Returns None if not found.

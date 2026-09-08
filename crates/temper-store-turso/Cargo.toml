@@ -1,4 +1,6 @@
 [package]
+# Registry publication would replace the patched path with unpatched libsql.
+publish = false
 name = "temper-store-turso"
 version.workspace = true
 edition.workspace = true

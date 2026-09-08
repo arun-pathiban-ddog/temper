@@ -499,7 +499,11 @@ impl crate::state::ServerState {
         };
         let expected_sequence = state.sequence_nr;
         let mut events = Vec::new();
-        if !suppress_bootstrap_event
+        let retain_bootstrap = !suppress_bootstrap_event
+            || self
+                .transition_table_for_dispatch(tenant, entity_type)?
+                .has_input_contracts();
+        if retain_bootstrap
             && !target_exists
             && expected_sequence == 0
             && state.total_event_count == 0
@@ -828,7 +832,8 @@ impl crate::state::ServerState {
         // Match the bootstrap event included by atomic staging in event budgets.
         if !before.target_existed
             && before.state.sequence_nr == 0
-            && !(write.uses_parent_gate && write.action == "Create")
+            && (!(write.uses_parent_gate && write.action == "Create")
+                || table.has_input_contracts())
         {
             let created = crate::entity_actor::EntityEvent {
                 action: "Created".into(),
@@ -916,7 +921,7 @@ impl crate::state::ServerState {
         })
     }
 
-    pub(super) fn transition_table_for_dispatch(
+    pub(crate) fn transition_table_for_dispatch(
         &self,
         tenant: &TenantId,
         entity_type: &str,

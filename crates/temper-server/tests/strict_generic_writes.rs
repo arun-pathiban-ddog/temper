@@ -2,6 +2,8 @@
 #[path = "strict_generic_writes/authorization.rs"]
 mod authorization;
 mod common;
+#[path = "strict_generic_writes/creation.rs"]
+mod creation;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -32,12 +34,15 @@ fn state() -> ServerState {
     state_with_csdl(common::CSDL_XML)
 }
 fn state_with_csdl(csdl: &str) -> ServerState {
+    state_with_spec(csdl, SPEC)
+}
+fn state_with_spec(csdl: &str, spec: &str) -> ServerState {
     let mut registry = SpecRegistry::new();
     registry.register_tenant(
         "default",
         parse_csdl(csdl).unwrap(),
         csdl.to_owned(),
-        &[("Order", SPEC)],
+        &[("Order", spec)],
     );
     registry.set_verification_status(
         &TenantId::default(),

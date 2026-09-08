@@ -299,7 +299,7 @@ async fn authorize_pg_mutation(
     action: &str,
     security_ctx: &temper_authz::SecurityContext,
     agent_ctx: &AgentContext,
-) -> Result<temper_actor_runtime::spec_actor::SpecActorState, ODataWriteError> {
+) -> Result<(temper_actor_runtime::spec_actor::SpecActorState, i64), ODataWriteError> {
     let actor_sys = state.pg_actor_system.as_ref().ok_or_else(|| {
         Box::new(
             odata_error(
@@ -311,8 +311,11 @@ async fn authorize_pg_mutation(
         )
     })?;
     let namespace = format!("{tenant}/{entity_id}");
-    let state_bytes = match actor_sys.load_state(&namespace, entity_type).await {
-        Ok(Some(state_bytes)) => state_bytes,
+    let (state_bytes, version) = match actor_sys
+        .load_state_with_version(&namespace, entity_type)
+        .await
+    {
+        Ok(Some(snapshot)) => snapshot,
         Ok(None) => {
             return Err(Box::new(
                 odata_error(
@@ -370,7 +373,7 @@ async fn authorize_pg_mutation(
     {
         return Err(Box::new(response));
     }
-    Ok(actor_state)
+    Ok((actor_state, version))
 }
 
 async fn authorize_existing_mutation(
@@ -835,7 +838,7 @@ pub async fn handle_odata_post(
                 let handle =
                     temper_actor_runtime::ActorHandle::new(namespace.clone(), entity_type.clone());
                 let action_name = action.rsplit('.').next().unwrap_or(&action);
-                let actor_state = match authorize_pg_mutation(
+                let (actor_state, authorization_version) = match authorize_pg_mutation(
                     &state,
                     &tenant,
                     &entity_type,
@@ -885,7 +888,8 @@ pub async fn handle_odata_post(
                         temper_actor_runtime::spec_actor::SpecMessage::with_params(
                             action_name,
                             body_json.clone(),
-                        ),
+                        )
+                        .if_state_version(authorization_version),
                     )
                     .await
                 {

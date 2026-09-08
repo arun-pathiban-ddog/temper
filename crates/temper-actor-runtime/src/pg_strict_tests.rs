@@ -4,43 +4,11 @@ use crate::spec_actor::{SpecActorState, SpecDrivenActor, SpecMessage};
 use prost::Message as _;
 use std::collections::HashMap;
 
-static SCHEMA_READY: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
-
 async fn pool() -> (
     Pool,
     Option<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
 ) {
-    if let Ok(url) = std::env::var("TEMPER_ACTOR_TEST_DATABASE_URL") {
-        let parsed: tokio_postgres::Config = url.parse().unwrap();
-        assert!(
-            parsed.get_hosts().iter().all(|host| matches!(host,
-            tokio_postgres::config::Host::Tcp(name) if name == "127.0.0.1" || name == "localhost"))
-        );
-        assert!(
-            parsed
-                .get_dbname()
-                .is_some_and(|name| name.starts_with("temper_test_"))
-        );
-        let mut config = deadpool_postgres::Config::new();
-        config.url = Some(url);
-        let pool = config
-            .create_pool(
-                Some(deadpool_postgres::Runtime::Tokio1),
-                tokio_postgres::NoTls,
-            )
-            .unwrap();
-        SCHEMA_READY
-            .get_or_init(|| async {
-                schema::create_tables(&pool.get().await.unwrap())
-                    .await
-                    .unwrap();
-            })
-            .await;
-        (pool, None)
-    } else {
-        let (pool, container) = crate::test_utils::setup_test_pg().await;
-        (pool, container)
-    }
+    crate::test_utils::setup_test_pg().await
 }
 
 async fn read(pool: &Pool, handle: &ActorHandle) -> (Vec<u8>, i64, i64) {
@@ -349,7 +317,7 @@ effect = [{effect}]
 }
 
 #[tokio::test]
-async fn round_three_fresh_identity_is_persisted_before_any_action() {
+async fn fresh_identity_is_persisted_before_any_action() {
     let (pool, _container) = pool().await;
     let spec = SPEC.replace("field = \"desired\"", "field = \"Id\"");
     let system = crate::ActorSystem::new(pool.clone(), crate::SchedulerConfig::default());
@@ -474,3 +442,44 @@ async fn activation_preserves_recovered_bytes_and_initializes_only_absent_actors
 
 #[path = "pg_creation_tests.rs"]
 mod creation_tests;
+
+#[tokio::test]
+async fn auxiliary_state_updates_invalidate_queued_authorization() {
+    let (pool, _container) = pool().await;
+    let actor = MutatingFailure {
+        rejected: false,
+        recovered: true,
+    };
+    let handle = setup(&pool, &actor).await;
+    let mailbox = Arc::new(PgMailbox::new(pool.clone(), PgMailboxConfig::default()));
+    let activator = PgActorActivator::new(pool.clone(), mailbox.clone(), Default::default());
+    let version = read(&pool, &handle).await.2;
+    let message_id = mailbox
+        .tell(
+            None,
+            &handle,
+            "SpecMessage",
+            SpecMessage::new("Request")
+                .if_state_version(version)
+                .encode_to_vec(),
+        )
+        .await
+        .unwrap();
+    let context = ActorContext::new(handle.clone(), None, Some(pool.clone()), Default::default());
+    context
+        .upsert_actor_state(&handle.namespace, &handle.actor_type, b"new owner".to_vec())
+        .await
+        .unwrap();
+    assert!(matches!(
+        activator.activate(&handle, &actor).await,
+        Err(ActivationError::ActorError(ActorError::Rejected(_)))
+    ));
+    let (state, cursor, current_version) = read(&pool, &handle).await;
+    assert_eq!(state, b"new owner");
+    assert_eq!(cursor, message_id);
+    assert_eq!(current_version, version + 2);
+    let count: i64 = pool.get().await.unwrap().query_one(
+        "SELECT count(*) FROM odp_temper.actor_messages WHERE namespace = $1 AND to_actor = 'Audit'",
+        &[&handle.namespace]).await.unwrap().get(0);
+    assert_eq!(count, 0, "stale authorization ran the handler");
+}

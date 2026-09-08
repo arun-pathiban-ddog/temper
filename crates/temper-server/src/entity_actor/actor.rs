@@ -162,12 +162,7 @@ impl EntityActor {
             item_count: 0,
             counters,
             booleans,
-            lists: if table.strict_action_params
-                || table
-                    .action_contracts
-                    .values()
-                    .any(|contract| !contract.constraints.is_empty())
-            {
+            lists: if table.has_input_contracts() {
                 table.initial_values.lists.clone()
             } else {
                 BTreeMap::new()
@@ -915,13 +910,7 @@ impl EntityActor {
                 }
             }
             Err(e) => {
-                if replay_policy.strict_journal_read()
-                    || table.strict_action_params
-                    || table
-                        .action_contracts
-                        .values()
-                        .any(|contract| !contract.constraints.is_empty())
-                {
+                if replay_policy.strict_journal_read() || table.has_input_contracts() {
                     return Err(ActorError::custom(format!(
                         "failed to read events for replay of {}:{}: {e}",
                         state.entity_type, state.entity_id

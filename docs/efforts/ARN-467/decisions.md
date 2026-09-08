@@ -424,3 +424,54 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Chose committed-row reads and authorization first because:** PostgreSQL already arbitrates conflicting inserts, so its durable row supplies the correct state without adding another locking protocol. Stream storage failures now return a read error instead of a misleading missing-resource response. The hook exclusion regression now runs in CI, and creation tests prove an authorized caller cannot choose a non-initial status.
 
 **Where:** crates/temper-actor-runtime/src/pg.rs; crates/temper-actor-runtime/tests/integration/creation_race.rs; crates/temper-server/src/odata/stream_put.rs; .github/workflows/ci.yml.
+
+
+## D34: Validate first actions before creation and preserve authorization through delivery
+
+**Decision:** Check absent targets' input contracts before materialization, carry the PostgreSQL row version used for Cedar on queued external actions, retain bootstrap events for contracted composite targets, and normalize creation identity aliases.
+
+**Came up because:** The 820c89a3 review produced regressions for rejected bound actions and child initializers leaving actors behind, a queued action executing after ownership changed, a parent-gated Ref losing its counter default on recovery, and public PostgreSQL creation storing different Id and id values.
+
+**Options:** Accept these as legacy behavior, remove the affected persistence paths from the release, or enforce the existing creation, authorization and recovery contracts at their boundaries.
+
+**Chose boundary enforcement because:** Rita already answered the scope assessment by retaining the complete persistence contract. Preflight prevents invalid creation while execution-time checks remain authoritative. A version read in the same query as Cedar's state is compared under the activation lock before any handler runs; stale delivery consumes only its queue entry. Contracted composite creation persists its defaults. A supplied identity alias sets both spellings, while conflicting aliases are refused. The PostgreSQL version is carried in the existing protobuf envelope, requiring no mailbox schema migration.
+
+**Where:** crates/temper-server/src/odata/{bindings.rs,write.rs}; crates/temper-server/src/state/dispatch/{cross_entity.rs,composite.rs}; crates/temper-actor-runtime/src/{system.rs,spec_actor.rs,pg.rs}; simulator-backed creation and replay tests and the PostgreSQL FIFO authorization regression.
+
+
+## D35: Bound integration callback chains with the existing reaction depth budget
+
+**Decision:** Carry callback depth through native dispatch context and refuse nested WASM or adapter callbacks when the existing eight-level reaction budget is exhausted.
+
+**Came up because:** A local self-callback WASM regression overflowed its process stack before reaching a seventy-transition spec guard. Integration callbacks started full dispatch without retaining a depth budget.
+
+**Options:** Restore incomplete callback dispatch, allow unbounded integration chains, or preserve full dispatch while carrying the existing runtime depth bound across callbacks and service-context inheritance.
+
+**Chose a shared bound because:** Both inline and background integrations retain the budget without a global counter or storage change. Exhaustion records the existing callback-refusal event and does not invoke another transition or compensation. Request headers cannot set the runtime depth. The ordinary reaction traversal keeps its existing independent bound. The depth-limited test still overflowed its small test-thread stack, so callback construction and polling also use the existing stacker dependency at their recursive boundary: an 8 MiB segment is allocated only below a 2 MiB reserve. This preserves single-threaded polling and awaited callback ordering; it costs bounded additional stack memory rather than introducing child tasks.
+
+**Where:** crates/temper-server/src/request_context.rs; crates/temper-server/src/state/dispatch/{adapter.rs,wasm/invocation_artifacts.rs}; tests/strict_native_callbacks/budget.rs.
+
+
+## D36: Close review findings without reopening settled persistence contracts
+
+**Decision:** Enforce the reviewed libSQL source manifest in CI, refuse storage-crate registry publication that would lose the patch, remove the unused actor-name list, and retain the existing documented recovery and performance choices.
+
+**Came up because:** The final panel identified an unenforced vendor patch boundary and a Cargo publication path that substitutes unpatched registry code. It also repeated concerns already covered by D17/D19, D22, D23 and the answered D31 exception.
+
+**Options:** Add more recovery fallbacks and cache layers, split persistence out of the accepted factory scope, or fix demonstrated defects and record the remaining tradeoffs explicitly.
+
+**Chose explicit boundaries because:** The six correctness findings are covered by D34/D35 regressions. Shared table predicates and PostgreSQL fixtures replace duplicated checks; behavior-based test names replace review-round names. The manifest makes vendor drift a CI failure, while publication metadata prevents a release without the fixed dependency. Empty persisted contracted state remains a refusal, not implicit initialization. Pending-message discovery, cold existence reads and composite preflight retain their measured or documented costs; this review did not demonstrate a correctness failure in those paths. Future bootstrap-schema changes require an explicit compatibility decision. Routed in-process messages are trusted IPC, not authenticated capabilities. Timing and stack-threshold tests retain their stated build-dependent limits; the native-runtime DST exception remains unchanged. The existing temper-agents crate still mixes app support into the kernel repository; this effort removes the unused list without relocating that legacy crate.
+
+**Where:** vendor/libsql/TEMPER-PATCH.md; vendor/libsql/TEMPER-SHA256SUMS; scripts/check-vendored-libsql.py; .github/workflows/ci.yml; crates/temper-store-turso/Cargo.toml; crates/temper-agents/src/lib.rs; D17, D19, D22, D23, D31, D34 and D35 above.
+
+## D37: Keep authorization versions consistent across every state writer
+
+**Decision:** Increment the persisted version on auxiliary state updates, restrict child creation preflight to absent children, and match composite preflight's bootstrap count to staging.
+
+**Came up because:** Review found that ActorContext's auxiliary upsert could replace state without invalidating queued authorization. The new child preflight also compared existing blob descriptors against logical values before the actor could hydrate them. Both failures were reproduced locally.
+
+**Options:** Add another locking protocol and blob hydration path, or reuse the existing version guard and actor validation boundaries.
+
+**Chose existing boundaries because:** Every existing-row state writer now advances the version, so queued authorization and concurrent activation CAS detect an auxiliary write. Existing child actors retain hydrated execution-time validation; absent children still reject invalid initialization before materialization. Composite event budgets now count the same Created event that staging retains for contracted targets.
+
+**Where:** crates/temper-actor-runtime/src/actor.rs and pg_strict_tests.rs; crates/temper-server/src/state/dispatch/cross_entity.rs and composite.rs; tests/strict_generic_writes/creation.rs.

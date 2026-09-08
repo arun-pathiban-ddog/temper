@@ -39,25 +39,6 @@ pub const COMPACTOR_SPEC: &str = include_str!("../specs/compactor.ioa.toml");
 pub const PROCESS_REACTIONS: &str = include_str!("../specs/process.reactions.toml");
 pub const AGENT_REACTIONS: &str = PROCESS_REACTIONS; // legacy alias
 
-/// Names of all spec-driven actors in the agent system.
-/// Session-scoped actor types (spawned per-conversation).
-/// AgentDefinition and Message are NOT session actors — they're separate entities.
-pub const AGENT_ACTOR_TYPES: &[&str] = &[
-    "Process", // renamed from Agent
-    "ContextManager",
-    "ToolRouter",
-    "Compactor",
-    "LlmIntegration",
-    "ContextAssemblerIntegration",
-    "ToolExecutorIntegration",
-    "CompactionIntegration",
-    "ToolRegistry",
-    // Primitive integrations
-    "WakeupSchedulerIntegration",
-    "ChildSpawnerIntegration",
-    "ChildCompletionIntegration",
-];
-
 // ─── Agent system setup ───────────────────────────────────────────────────────
 
 /// Register spec-driven actors (Process, AgentDefinition, Message, ContextManager,

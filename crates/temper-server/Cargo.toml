@@ -16,6 +16,8 @@ observe = ["temper-verify"]
 sim = ["dep:temper-store-sim"]
 
 [dependencies]
+# Bounded recursive callback polling uses the same stack allocator as Cedar.
+stacker = "0.1.23"
 temper-runtime = { workspace = true }
 temper-actor-runtime = { workspace = true }
 temper-odata = { workspace = true }

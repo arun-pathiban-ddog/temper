@@ -1,4 +1,6 @@
 //! Strict OData requests use the actual HTTP router and PostgreSQL actor runtime.
+#[path = "strict_postgres_actions/authorization.rs"]
+mod authorization;
 use std::collections::HashMap;
 use std::sync::Arc;
 

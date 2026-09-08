@@ -34,13 +34,24 @@ pub struct SpecMessage {
     /// JSON-encoded params (empty bytes for parameterless actions).
     #[prost(bytes, tag = "2")]
     pub params: Vec<u8>,
+    /// Persisted row version used to authorize an external action, when present.
+    /// The PostgreSQL activator checks it before invoking any actor handler.
+    #[prost(int64, optional, tag = "3")]
+    pub expected_state_version: Option<i64>,
 }
 
 impl SpecMessage {
+    /// Bind execution to the persisted state that authorized this message.
+    pub fn if_state_version(mut self, version: i64) -> Self {
+        self.expected_state_version = Some(version);
+        self
+    }
+
     pub fn new(action: impl Into<String>) -> Self {
         Self {
             action: action.into(),
             params: Vec::new(),
+            expected_state_version: None,
         }
     }
 
@@ -48,13 +59,14 @@ impl SpecMessage {
         Self {
             action: action.into(),
             params: serde_json::to_vec(&params).unwrap_or_default(),
+            expected_state_version: None,
         }
     }
 }
 
 /// Internal reaction delivery. Source fields are projected at the receiving
-/// actor, where its declared action inputs are available. External requests
-/// cannot use this envelope without an actor sender.
+/// actor, where its declared action inputs are available. HTTP requests use ordinary SpecMessage; this internal
+/// envelope requires a sender but does not authenticate in-process callers.
 #[derive(Clone, PartialEq, prost::Message)]
 pub(crate) struct RoutedSpecMessage {
     // Keep the SpecMessage wire layout: concrete integration actors decode it.
@@ -107,14 +119,6 @@ pub struct SpecDrivenActor {
     input_field_resets: HashMap<String, Vec<String>>,
 }
 
-fn has_input_contracts(table: &TransitionTable) -> bool {
-    table.strict_action_params
-        || table
-            .action_contracts
-            .values()
-            .any(|contract| !contract.constraints.is_empty())
-}
-
 impl SpecDrivenActor {
     /// Create from an IOA TOML source + routing map.
     pub fn from_ioa(
@@ -162,7 +166,7 @@ impl SpecDrivenActor {
             &mut init_state.counters,
             &mut init_state.booleans,
         );
-        if has_input_contracts(&table) {
+        if table.has_input_contracts() {
             init_state.lists = table.initial_values.lists.clone();
         }
 
@@ -219,7 +223,7 @@ impl Actor for SpecDrivenActor {
     }
 
     fn initial_state_for(&self, handle: &ActorHandle) -> Vec<u8> {
-        if !has_input_contracts(&self.table) {
+        if !self.table.has_input_contracts() {
             return self.initial_state();
         }
         let mut state = self.init_state.clone();
@@ -240,7 +244,7 @@ impl Actor for SpecDrivenActor {
         message: &Message,
     ) -> Result<(), ActorError> {
         // Supported creation persists initial bytes before the actor accepts messages.
-        if state.is_empty() && has_input_contracts(&self.table) {
+        if state.is_empty() && self.table.has_input_contracts() {
             return Err(ActorError::Rejected(
                 "contracted actor has no persisted initial state".into(),
             ));

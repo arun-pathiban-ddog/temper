@@ -184,7 +184,9 @@ impl ActorContext {
         client
             .execute(
                 "INSERT INTO odp_temper.actor_instances (namespace, actor_type, state) VALUES ($1, $2, $3)
-                 ON CONFLICT (namespace, actor_type) DO UPDATE SET state = EXCLUDED.state",
+                 ON CONFLICT (namespace, actor_type) DO UPDATE
+                 SET state = EXCLUDED.state, version = actor_instances.version + 1,
+                     updated_at = NOW()",
                 &[&namespace, &actor_type, &state],
             )
             .await

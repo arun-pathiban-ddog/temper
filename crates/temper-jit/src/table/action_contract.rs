@@ -192,6 +192,15 @@ fn matches_field(param: &Value, field: &Value, counter: bool) -> Option<bool> {
 }
 
 impl TransitionTable {
+    /// Whether any action requires the persisted input-contract semantics.
+    pub fn has_input_contracts(&self) -> bool {
+        self.strict_action_params
+            || self
+                .action_contracts
+                .values()
+                .any(|contract| !contract.constraints.is_empty())
+    }
+
     /// Materialize declarations once when creating a fresh contracted actor.
     /// Recovery must retain persisted state, including missing fields.
     pub fn initialize_declared_fields(

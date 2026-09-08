@@ -1,4 +1,6 @@
 //! Real WASM engine → native strict actor callback proof; no external providers.
+#[path = "strict_native_callbacks/budget.rs"]
+mod budget;
 use serde_json::json;
 use temper_runtime::{ActorSystem, tenant::TenantId};
 use temper_server::{

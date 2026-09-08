@@ -223,6 +223,28 @@ pub(super) async fn dispatch_bound_action(
         return resp;
     }
 
+    if !authz_snapshot.exists {
+        let validation = state
+            .transition_table_for_dispatch(tenant, entity_type)
+            .map_err(|error| error.to_string())
+            .and_then(|table| {
+                table.validate_action_params(
+                    action.rsplit('.').next().unwrap_or(action),
+                    &body_json,
+                    &current_state.state.fields,
+                    &current_state.state.counters,
+                    &current_state.state.booleans,
+                )
+            });
+        if let Err(error) = validation {
+            http_span.set_status(Status::error("StrictActionContract"));
+            http_span.set_attribute(OtelKeyValue::new("http.status_code", 409i64));
+            http_span.end_with_timestamp(sim_now().into());
+            return odata_error(StatusCode::CONFLICT, "StrictActionContract", &error)
+                .into_response();
+        }
+    }
+
     let snapshot = match state
         .materialize_authorized_snapshot(tenant, entity_type, key_str, authz_snapshot)
         .await

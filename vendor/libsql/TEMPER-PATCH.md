@@ -9,3 +9,14 @@ The source is the published crate. The only Rust source change removes the redun
 Regression: crates/temper-store-turso/tests/connection_lifetime.rs in the Temper workspace. Rationale: docs/adrs/0175-libsql-connection-lifetime.md.
 
 The storage crate uses a direct path dependency so consumers of Temper also use this fixed source; no root-only Cargo patch is required.
+
+This provenance document and TEMPER-SHA256SUMS are additional local files. The
+checksum manifest covers every retained upstream file, the license and this
+document. scripts/check-vendored-libsql.py rejects changed, missing or additional
+files in CI. Intentional vendor updates must refresh the manifest and review the
+source difference against the published archive above.
+
+The fixed source must remain with every distributed Temper checkout. The storage
+crate refuses registry publication: Cargo would otherwise replace its path with
+the unpatched upstream release. Registry distribution requires a published fixed
+dependency before that restriction can be removed.

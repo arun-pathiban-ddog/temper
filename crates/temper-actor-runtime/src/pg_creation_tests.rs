@@ -42,6 +42,7 @@ async fn public_spawn_with_fields_validates_strict_creation_before_writing() {
     let state: SpecActorState = serde_json::from_slice(&before.0).unwrap();
     assert_eq!(state.fields["desired"], "first");
     assert_eq!(state.fields["Id"], "canonical");
+    assert_eq!(state.fields["id"], "canonical");
     assert!(matches!(
         system
             .spawn_with_fields(
@@ -146,5 +147,60 @@ async fn context_spawn_persists_strict_child_defaults_before_activation() {
         read(&pool, &child).await,
         changed,
         "repeated spawn preserves the child"
+    );
+}
+
+#[tokio::test]
+async fn public_creation_normalizes_both_aliases_and_refuses_conflicting_identity() {
+    let (pool, _container) = pool().await;
+    let system = crate::ActorSystem::new(pool.clone(), crate::SchedulerConfig::default());
+    let spec = SPEC.replace(
+        "params = [\"desired\", \"expected_desired\"]",
+        "params = [\"desired\", \"expected_desired\", \"expected_id\"]",
+    ) + r#"
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_id"
+field = "Id"
+[[action.constraints]]
+kind = "param_equals_field"
+param = "expected_id"
+field = "id"
+"#;
+    system
+        .register(Arc::new(
+            SpecDrivenActor::from_ioa(&spec, HashMap::new()).unwrap(),
+        ))
+        .await
+        .unwrap();
+    for alias in ["Id", "id"] {
+        let namespace = format!("alias-{}", Uuid::new_v4());
+        let handle = system
+            .spawn_with_fields(&namespace, "Strict", serde_json::json!({alias:"canonical"}))
+            .await
+            .unwrap();
+        system.tell(None,&handle,SpecMessage::with_params("Replace",serde_json::json!({"desired":"changed","expected_desired":"first","expected_id":"canonical"}))).await.unwrap();
+        assert!(system.activate_now(&handle).await.unwrap());
+        let actual: SpecActorState = serde_json::from_slice(&read(&pool, &handle).await.0).unwrap();
+        assert_eq!(actual.fields["desired"], "changed");
+        assert_eq!(actual.fields["Id"], actual.fields["id"]);
+    }
+    let namespace = format!("conflicting-alias-{}", Uuid::new_v4());
+    assert!(matches!(
+        system
+            .spawn_with_fields(
+                &namespace,
+                "Strict",
+                serde_json::json!({"Id":"one","id":"two"})
+            )
+            .await,
+        Err(ActorError::Rejected(_))
+    ));
+    assert!(
+        system
+            .load_state(&namespace, "Strict")
+            .await
+            .unwrap()
+            .is_none()
     );
 }

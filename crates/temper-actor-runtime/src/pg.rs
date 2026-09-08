@@ -338,7 +338,30 @@ impl PgActorActivator {
             self.handlers.clone(),
         );
 
-        match handler.handle(&ctx, &mut state, &message).await {
+        let authorization = if message.message_type == "SpecMessage" {
+            message
+                .decode::<crate::spec_actor::SpecMessage>()
+                .map_err(|error| ActorError::Rejected(format!("invalid SpecMessage: {error}")))
+                .and_then(|envelope| {
+                    if envelope
+                        .expected_state_version
+                        .is_some_and(|expected| expected != version)
+                    {
+                        Err(ActorError::Rejected(
+                            "authorization state changed before delivery".into(),
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                })
+        } else {
+            Ok(())
+        };
+        let result = match authorization {
+            Ok(()) => handler.handle(&ctx, &mut state, &message).await,
+            Err(error) => Err(error),
+        };
+        match result {
             Ok(()) => {}
             Err(error @ ActorError::Rejected(_)) => {
                 // Deterministic refusals must not poison FIFO. Advance only the

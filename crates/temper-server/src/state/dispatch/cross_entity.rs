@@ -337,6 +337,46 @@ impl crate::state::ServerState {
                         serde_json::Value::Object(parent_fields.clone())
                     };
 
+                    if let (Some(table), Some((action, params))) = (&child_table, &initializer) {
+                        let validation = state
+                            .load_authz_resource_snapshot(&t, &child_type, &child_id)
+                            .await
+                            .and_then(|snapshot| {
+                                // Existing actors validate against their hydrated blob
+                                // values and execution-time state. Only absent children
+                                // need this check before creation can persist anything.
+                                if snapshot.exists {
+                                    return Ok(());
+                                }
+                                let prestate =
+                                    crate::entity_actor::EntityActor::build_initial_state(
+                                        &child_type,
+                                        &child_id,
+                                        table,
+                                        &initial_fields,
+                                    );
+                                table.validate_action_params(
+                                    action,
+                                    params,
+                                    &prestate.fields,
+                                    &prestate.counters,
+                                    &prestate.booleans,
+                                )
+                            });
+                        if let Err(error) = validation {
+                            state.record_generated_callback_refusal(
+                                super::WasmEntityRef {
+                                    tenant: &t,
+                                    entity_type: &parent_t,
+                                    entity_id: &parent_i,
+                                },
+                                action,
+                                &error,
+                            );
+                            return;
+                        }
+                    }
+
                     match state
                         .get_or_create_tenant_entity(&t, &child_type, &child_id, initial_fields)
                         .await

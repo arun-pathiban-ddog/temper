@@ -27,6 +27,8 @@ mod observation_metadata;
 ///   namespaced observability metadata supplied by clients
 #[derive(Debug, Clone, Default)]
 pub struct AgentContext {
+    /// Runtime-owned integration nesting depth; never populated from request headers.
+    pub callback_depth: u32,
     /// Full Cedar security context when known at the request boundary.
     ///
     /// External HTTP entrypoints populate this after credential resolution so
@@ -73,6 +75,16 @@ pub struct AgentContext {
 }
 
 impl AgentContext {
+    /// Carry the existing reaction depth budget through integration callbacks.
+    pub(crate) fn for_callback(&self) -> Option<Self> {
+        if self.callback_depth >= temper_runtime::reaction::MAX_REACTION_DEPTH {
+            return None;
+        }
+        let mut next = self.clone();
+        next.callback_depth += 1;
+        Some(next)
+    }
+
     /// Create a system-level agent context for internal operations.
     ///
     /// Marks the provenance as `"system"` so that trajectories and events
@@ -80,6 +92,7 @@ impl AgentContext {
     /// dropping identity via `Default`.
     pub fn system() -> Self {
         Self {
+            callback_depth: 0,
             security_ctx: Some(SecurityContext::system()),
             agent_id: Some("system".to_string()),
             session_id: None,
@@ -115,6 +128,7 @@ impl AgentContext {
         security_ctx.principal.role = Some("service".to_string());
 
         Self {
+            callback_depth: 0,
             security_ctx: Some(security_ctx),
             agent_id: Some(service_id),
             session_id: None,
@@ -147,8 +161,9 @@ impl AgentContext {
         Self::for_service(service_name).inherit_observability_from(parent)
     }
 
-    /// Copy non-authority observability fields from another dispatch context.
+    /// Copy the execution budget and non-authority observability fields from a parent.
     pub fn inherit_observability_from(mut self, parent: &AgentContext) -> Self {
+        self.callback_depth = parent.callback_depth;
         self.session_id = parent.session_id.clone();
         self.intent = parent.intent.clone();
         self.trace_id = parent.trace_id.clone();
@@ -258,6 +273,7 @@ pub(crate) fn extract_agent_context(headers: &HeaderMap) -> AgentContext {
     let workflow_run_id = header_string(headers, "x-temper-workflow-run-id");
 
     AgentContext {
+        callback_depth: 0,
         security_ctx: None,
         agent_id: None,
         session_id,

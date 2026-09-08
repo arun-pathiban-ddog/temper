@@ -1,3 +1,6 @@
+#[cfg(feature = "sim")]
+#[path = "composite/defaults_test.rs"]
+mod defaults_test;
 use std::collections::BTreeMap;
 
 use serde_json::json;
