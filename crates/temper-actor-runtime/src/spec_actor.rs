@@ -127,17 +127,16 @@ impl SpecDrivenActor {
     ) -> Result<Self, String> {
         let automaton = temper_spec::parse_automaton(ioa_source)
             .map_err(|e| format!("failed to parse spec: {e}"))?;
-        Ok(Self::from_automaton(&automaton, ioa_source, routing))
+        Ok(Self::from_automaton(&automaton, routing))
     }
 
     /// Create from a pre-parsed Automaton + routing map.
     pub fn from_automaton(
         automaton: &Automaton,
-        ioa_source: &str,
         routing: HashMap<String, (String, String)>,
     ) -> Self {
         let name = automaton.automaton.name.clone();
-        let table = TransitionTable::from_ioa_source(ioa_source);
+        let table = TransitionTable::from_automaton(automaton);
 
         // Build initial state from spec variables.
         let mut init_state = SpecActorState {

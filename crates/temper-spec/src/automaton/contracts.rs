@@ -2,11 +2,19 @@
 use super::{ActionConstraint, ActionParam, Automaton, parser::AutomatonParseError};
 use std::collections::{BTreeMap, BTreeSet};
 
-fn category(kind: &str) -> &str {
+fn field_category(kind: &str) -> &str {
     match kind {
-        "counter" | "uint64" | "int" | "integer" => "integer",
+        "counter" | "int" | "integer" => "integer",
         "status" => "string",
         other => other,
+    }
+}
+
+fn parameter_category(kind: &str) -> &str {
+    if kind == "uint64" {
+        "integer"
+    } else {
+        field_category(kind)
     }
 }
 
@@ -65,7 +73,7 @@ pub(super) fn validate(automaton: &Automaton) -> Result<(), AutomatonParseError>
             let field_type = if let Some(name) = constraint.field() {
                 Some(
                     if let Some(field) = automaton.state.iter().find(|field| field.name == name) {
-                        category(&field.var_type)
+                        field_category(&field.var_type)
                     } else if matches!(name, "Id" | "id") {
                         "string"
                     } else {
@@ -100,7 +108,7 @@ pub(super) fn validate(automaton: &Automaton) -> Result<(), AutomatonParseError>
                 return Err(fail("parameter constraints require incompatible types"));
             }
             if let ActionParam::Typed { param_type, .. } = param
-                && required_type.is_some_and(|expected| category(param_type) != expected)
+                && required_type.is_some_and(|expected| parameter_category(param_type) != expected)
             {
                 return Err(fail(
                     "declared parameter type does not match the constraint",
@@ -161,6 +169,39 @@ field = "sequence"
 "#
         )
     }
+    #[test]
+    fn uint64_parameters_do_not_enable_string_backed_uint64_field_comparisons() {
+        for param in [r#""value""#, r#"{name="value",type="uint64"}"#] {
+            for kind in [
+                "param_equals_field",
+                "param_not_equals_field",
+                "param_greater_than_field",
+            ] {
+                assert!(parse_automaton(&spec("uint64", param, kind)).is_err());
+                assert!(parse_automaton(&spec("counter", param, kind)).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_typed_parameter_declarations_are_never_bare_parameter_names() {
+        let base = spec(
+            "counter",
+            r#"{name="value",type="uint64"}"#,
+            "param_equals_field",
+        );
+        let source = base.split("[[action.constraints]]").next().unwrap();
+        for malformed in [
+            r#"{name="value",type="uint64"}"#,
+            r#"[{name="value",type="uint64",}]"#,
+            r#"[{name="value",type=7}]"#,
+            r#"[{name=7,type="uint64"}]"#,
+        ] {
+            let invalid = source.replace(r#"[{name="value",type="uint64"}]"#, malformed);
+            assert!(parse_automaton(&invalid).is_err(), "accepted {malformed}");
+        }
+    }
+
     #[test]
     fn rejects_unsupported_or_duplicate_explicit_parameter_contracts() {
         let base = spec(

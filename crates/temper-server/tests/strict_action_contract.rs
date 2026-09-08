@@ -126,7 +126,7 @@ fn numeric_constraints_reject_payloads_the_numeric_effect_would_skip() {
     let source = CONTRACT
         .replace(
             "params = [\"observed\"]",
-            r#"params = ["observed", "expected_sequence"]
+            r#"params = ["observed", {name="expected_sequence",type="uint64"}]
 [[action.constraints]]
 kind = "param_equals_field"
 param = "expected_sequence"
@@ -139,6 +139,8 @@ field = "sequence"
             1,
         );
     let table = TransitionTable::from_ioa_source(&source);
+    let table: TransitionTable =
+        serde_json::from_value(serde_json::to_value(table).unwrap()).unwrap();
     let fields = serde_json::json!({});
     let counters = std::collections::BTreeMap::from([("sequence".to_owned(), 0)]);
     for value in [

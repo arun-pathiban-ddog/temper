@@ -231,7 +231,7 @@ impl ParseState {
             "kind" => action.kind = value.to_string(),
             "from" => action.from = parse_string_array(value),
             "to" => action.to = Some(value.to_string()),
-            "params" => action.params = parse_action_params(value),
+            "params" => action.params = parse_action_params(value)?,
             "hint" => action.hint = Some(value.to_string()),
             "record_parent_event" => match value.trim() {
                 "true" => action.record_parent_event = true,

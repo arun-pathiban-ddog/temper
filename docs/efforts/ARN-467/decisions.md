@@ -540,3 +540,17 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 
 
 **D41 review follow-up:** The initial early refusal skipped dispatch failure telemetry. Refused first inputs now use the existing failed-response pipeline, which records metrics and a trajectory then returns before entity effects. A regression checks exactly one failed metric and persisted SQLite trajectory while the actor/index and simulation journal/snapshot remain absent. The spec states parameter-contract refusal specifically; this change does not preflight transition guards.
+
+## D43: Separate parameter aliases from state representations and parse once
+
+**Decision:** Reject uint64 state-field comparisons, propagate typed-parameter decode errors, and compile native actor transitions directly from their parsed automaton.
+
+**Came up because:** The next Grok review found D42's uint64 parameter alias also enabled comparisons against string-backed uint64 state fields. Two inherited defects let invalid typed tables fall back to bare parameter names and gave native actor construction two competing specification inputs.
+
+**Options:** Add uint64 state storage throughout the engine, preserve permissive table parsing and duplicate source inputs, or enforce the existing representations at their parser and constructor boundaries.
+
+**Chose the existing representations because:** Typed uint64 parameters retain numeric validation and can compare against actual counters. Unsupported state comparisons fail installation instead of comparing numeric strings. Typed tables must decode correctly. The actor constructor has one specification, so its transitions and initial state cannot diverge through a second parse. The redundant source argument is removed and its caller migrated.
+
+**Where:** crates/temper-spec/src/automaton/contracts.rs; toml_parser/inline.rs and mod.rs; crates/temper-actor-runtime/src/spec_actor.rs and tests/spec_actor_strict/typed.rs.
+
+**Review dispositions:** Grok's single-table and non-string typed-shape examples reproduce the fallback. Its trailing-comma example was already refused by a later strict TOML metadata parse. Ordinary from_ioa already reports the first parse error; the constructor panic requires inconsistent inputs or changed parsing conditions and is not necessarily a process abort. The final Grok output reports divergence and is not a passing review. D31's native-actor DST exception, five findings and ARN-179 remain unchanged.

@@ -40,3 +40,26 @@ fn strict_initial_values_use_the_shared_typed_declarations() {
     assert!(state.booleans["enabled"]);
     assert_eq!(state.lists["members"], ["first"]);
 }
+
+#[tokio::test]
+async fn parsed_actor_uses_one_automaton_for_initial_state_and_transitions() {
+    let source = STRICT
+        .replace("StartProcess", "ParsedStart")
+        .replace("release-a", "parsed-initial");
+    let automaton = temper_spec::parse_automaton(&source).unwrap();
+    let actor = SpecDrivenActor::from_automaton(&automaton, HashMap::new());
+    let mut state = actor.initial_state();
+    let initial: SpecActorState = serde_json::from_slice(&state).unwrap();
+    assert_eq!(initial.fields["desired"], "parsed-initial");
+    let incoming = message(
+        "ParsedStart",
+        json!({"desired":"release-b", "expected_desired":"parsed-initial"}),
+        true,
+    );
+    actor
+        .handle(&context(), &mut state, &incoming)
+        .await
+        .unwrap();
+    let result: SpecActorState = serde_json::from_slice(&state).unwrap();
+    assert_eq!(result.fields["desired"], "release-b");
+}
