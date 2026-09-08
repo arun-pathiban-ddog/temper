@@ -336,3 +336,15 @@ The full workspace run also reached data-only creation, whose separate event ser
 **Chose the durable sequence because:** It prevents startup from inventing a new creation fact after existing history. Legacy lenient replay retains its previous behavior, while authoritative replay and the position requirement for committed defaults remain strict.
 
 **Where:** crates/temper-server/src/entity_actor/actor.rs; bootstrap_recovery_test.rs.
+
+## D27: Keep one owner of the libSQL connection close
+
+**Decision:** Vendor the published libSQL 0.9.29 crate with its redundant outer connection destructor removed, and run the concurrent lifetime regression in temper-store-turso.
+
+**Came up because:** The required kernel push checks aborted in native libSQL. A regression against the exact published crate reproduced the abort; the six-line deletion passed 160,000 connection lifecycles and the previously failing 978-test server suite.
+
+**Options:** Change the storage contract, depend on a private fork that public builds cannot fetch, create another publicly hosted dependency, or retain a reproducible source copy with the minimal patch.
+
+**Chose the source copy because:** The inner Connection already owns closure. Removing the outer close preserves the storage API and makes the correction available to every build without extra credentials or another repository. The storage crate uses a direct path dependency because a root-only Cargo patch would not propagate to downstream git consumers. The first-party placeholder hook excludes exactly this upstream directory; its regression proves adjacent vendor paths and first-party source remain checked. The cost is maintaining the vendored source and its provenance.
+
+**Where:** vendor/libsql/src/local/impls.rs; crates/temper-store-turso/tests/connection_lifetime.rs; docs/adrs/0175-libsql-connection-lifetime.md.

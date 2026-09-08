@@ -10,7 +10,10 @@ WORKSPACE_ROOT="$(git rev-parse --show-toplevel)"
 # --- Item 7: Integrity Check (Placeholder Detection) ---
 echo "Pre-commit: checking for placeholders in staged files..." >&2
 
-STAGED_RS="$(git diff --cached --name-only --diff-filter=ACM -- '*.rs' | grep -v '/tests/' | grep -v '_test\.rs' | grep -v 'test_' || true)"
+
+# Preserve the reviewed upstream crate verbatim; this lint governs our code.
+# The exact directory is intentional: adjacent vendor paths remain checked.
+STAGED_RS="$(git diff --cached --name-only --diff-filter=ACM -- '*.rs' | grep -v '^vendor/libsql/' | grep -v '/tests/' | grep -v '_test\.rs' | grep -v 'test_' || true)"
 
 if [ -n "$STAGED_RS" ]; then
     INTEGRITY_FAIL=false
