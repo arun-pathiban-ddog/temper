@@ -9,8 +9,7 @@ use super::{
 };
 use crate::entity_actor::{EntityResponse, EntityState};
 use crate::request_context::AgentContext;
-use crate::state::dispatch::DispatchError;
-use temper_runtime::tenant::TenantId;
+use crate::state::dispatch::DispatchCommand;
 use temper_wasm::{WasmHost, WasmInvocationContext, WasmResourceLimits};
 
 /// Heap-allocate the complete inline WASM integration state machine.
@@ -103,32 +102,10 @@ pub(in crate::state::dispatch) fn dispatch_wasm_callback_boxed<'a>(
         .boxed()
 }
 
-/// Heap-allocate recursive core action dispatch from a WASM callback.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "opaque boundary mirrors the existing instrumented async signature"
-)]
-pub(in crate::state::dispatch) fn dispatch_tenant_action_core_boxed<'a>(
+/// Heap-allocate complete action dispatch so inline callbacks run their reactions.
+pub(in crate::state::dispatch) fn dispatch_callback_action_boxed<'a>(
     state: &'a crate::state::ServerState,
-    tenant: &'a TenantId,
-    entity_type: &'a str,
-    entity_id: &'a str,
-    action: &'a str,
-    params: serde_json::Value,
-    agent_context: &'a AgentContext,
-    await_integration: bool,
-    expected_authorization_precondition: Option<String>,
-) -> BoxFuture<'a, Result<EntityResponse, DispatchError>> {
-    state
-        .dispatch_tenant_action_core(
-            tenant,
-            entity_type,
-            entity_id,
-            action,
-            params,
-            agent_context,
-            await_integration,
-            expected_authorization_precondition,
-        )
-        .boxed()
+    command: DispatchCommand<'a>,
+) -> BoxFuture<'a, Result<EntityResponse, String>> {
+    state.dispatch(command).boxed()
 }

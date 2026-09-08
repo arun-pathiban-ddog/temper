@@ -172,6 +172,24 @@ pub(super) async fn handle_stream_put(
     {
         return response;
     }
+    let snapshot = match state
+        .materialize_authorized_snapshot(tenant, &entity_type, &key, snapshot)
+        .await
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return odata_error(
+                if matches!(error, crate::state::DispatchError::Conflict(_)) {
+                    StatusCode::CONFLICT
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                },
+                "AuthorizationStateChanged",
+                &error.to_string(),
+            )
+            .into_response();
+        }
+    };
     let expected_authorization_precondition =
         crate::entity_actor::effects::entity_authorization_precondition(
             &snapshot.current_state.state,
@@ -294,6 +312,17 @@ pub(super) async fn handle_stream_put(
 }
 
 fn stream_put_success_response(entity_resp: &EntityResponse) -> axum::response::Response {
+    if !entity_resp.success {
+        return odata_error(
+            StatusCode::CONFLICT,
+            "ActionRejected",
+            entity_resp
+                .error
+                .as_deref()
+                .unwrap_or("Stream callback was rejected"),
+        )
+        .into_response();
+    }
     let mut response = StatusCode::NO_CONTENT.into_response();
     response
         .headers_mut()

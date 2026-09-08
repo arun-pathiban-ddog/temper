@@ -695,9 +695,15 @@ pub async fn handle_odata_post(
             }
 
             // PG-backed entity creation.
-            if state.is_pg_actor_backed(&tenant, &entity_type)
-                && let Some(actor_sys) = &state.pg_actor_system
-            {
+            if state.is_pg_actor_backed(&tenant, &entity_type) {
+                let Some(actor_sys) = &state.pg_actor_system else {
+                    return odata_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "ActorSystemUnavailable",
+                        "The actor system for this resource is unavailable",
+                    )
+                    .into_response();
+                };
                 let namespace = format!("{tenant}/{entity_id}");
                 let spawn_result = actor_sys
                     .spawn_with_fields(&namespace, &entity_type, initial_fields.clone())
@@ -816,13 +822,15 @@ pub async fn handle_odata_post(
                 Err(resp) => return *resp,
             };
 
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
-            }
-
-            if state.is_pg_actor_backed(&tenant, &entity_type)
-                && let Some(actor_sys) = &state.pg_actor_system
-            {
+            if state.is_pg_actor_backed(&tenant, &entity_type) {
+                let Some(actor_sys) = &state.pg_actor_system else {
+                    return odata_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "ActorSystemUnavailable",
+                        "The actor system for this resource is unavailable",
+                    )
+                    .into_response();
+                };
                 let namespace = format!("{tenant}/{key_str}");
                 let handle =
                     temper_actor_runtime::ActorHandle::new(namespace.clone(), entity_type.clone());
@@ -841,6 +849,9 @@ pub async fn handle_odata_post(
                     Ok(state) => state,
                     Err(response) => return *response,
                 };
+                if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                    return *resp;
+                }
                 let strict = {
                     let registry = state.registry.read().expect("registry lock poisoned");
                     if let Some(table) = registry.get_table(&tenant, &entity_type) {
@@ -971,9 +982,6 @@ pub async fn handle_odata_patch(
             };
             let key_str = extract_key(&key);
 
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
-            }
             // PG instances are authorized from their persisted state, before
             // refusing verbs that the strict type does not support.
             if state.is_pg_actor_backed(&tenant, &entity_type)
@@ -991,6 +999,9 @@ pub async fn handle_odata_patch(
                 .await
                 {
                     return *error;
+                }
+                if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                    return *resp;
                 }
                 return response;
             }
@@ -1013,6 +1024,9 @@ pub async fn handle_odata_patch(
                 Ok(existing) => existing,
                 Err(resp) => return *resp,
             };
+            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                return *resp;
+            }
             if let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type) {
                 return response;
             }
@@ -1188,9 +1202,6 @@ pub async fn handle_odata_put(
             };
             let key_str = extract_key(&key);
 
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
-            }
             // PG instances are authorized from their persisted state, before
             // refusing verbs that the strict type does not support.
             if state.is_pg_actor_backed(&tenant, &entity_type)
@@ -1208,6 +1219,9 @@ pub async fn handle_odata_put(
                 .await
                 {
                     return *error;
+                }
+                if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                    return *resp;
                 }
                 return response;
             }
@@ -1230,6 +1244,9 @@ pub async fn handle_odata_put(
                 Ok(existing) => existing,
                 Err(resp) => return *resp,
             };
+            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                return *resp;
+            }
             if let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type) {
                 return response;
             }
@@ -1405,9 +1422,6 @@ pub async fn handle_odata_delete(
             };
             let key_str = extract_key(&key);
 
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
-            }
             // PG instances are authorized from their persisted state, before
             // refusing verbs that the strict type does not support.
             if state.is_pg_actor_backed(&tenant, &entity_type)
@@ -1425,6 +1439,9 @@ pub async fn handle_odata_delete(
                 .await
                 {
                     return *error;
+                }
+                if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                    return *resp;
                 }
                 return response;
             }
@@ -1447,6 +1464,9 @@ pub async fn handle_odata_delete(
                 Ok(existing) => existing,
                 Err(resp) => return *resp,
             };
+            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                return *resp;
+            }
             if let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type) {
                 return response;
             }

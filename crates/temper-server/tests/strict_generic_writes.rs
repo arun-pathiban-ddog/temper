@@ -1,4 +1,6 @@
 //! Strict specifications cannot be bypassed through generic writes.
+#[path = "strict_generic_writes/authorization.rs"]
+mod authorization;
 mod common;
 use axum::{
     body::Body,
@@ -27,11 +29,14 @@ to = "Submitted"
 params = ["Notes"]
 "#;
 fn state() -> ServerState {
+    state_with_csdl(common::CSDL_XML)
+}
+fn state_with_csdl(csdl: &str) -> ServerState {
     let mut registry = SpecRegistry::new();
     registry.register_tenant(
         "default",
-        parse_csdl(common::CSDL_XML).unwrap(),
-        common::CSDL_XML.to_owned(),
+        parse_csdl(csdl).unwrap(),
+        csdl.to_owned(),
         &[("Order", SPEC)],
     );
     registry.set_verification_status(

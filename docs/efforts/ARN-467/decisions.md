@@ -348,3 +348,53 @@ The full workspace run also reached data-only creation, whose separate event ser
 **Chose the source copy because:** The inner Connection already owns closure. Removing the outer close preserves the storage API and makes the correction available to every build without extra credentials or another repository. The storage crate uses a direct path dependency because a root-only Cargo patch would not propagate to downstream git consumers. The first-party placeholder hook excludes exactly this upstream directory; its regression proves adjacent vendor paths and first-party source remain checked. The cost is maintaining the vendored source and its provenance.
 
 **Where:** vendor/libsql/src/local/impls.rs; crates/temper-store-turso/tests/connection_lifetime.rs; docs/adrs/0175-libsql-connection-lifetime.md.
+
+## D28: Run entity reactions after inline WASM callbacks
+
+**Decision:** Dispatch inline WASM callbacks through complete typed dispatch and await both nested integrations and entity reactions.
+
+**Came up because:** A real provider collection committed its callback, but the callback's entity trigger never created the immutable observation. Inline callbacks called core dispatch directly; background callbacks used complete dispatch.
+
+**Options:** Change callers to background mode, duplicate reaction logic in WASM callback handling, or use the existing complete dispatch through its boxed recursion boundary.
+
+**Chose complete dispatch because:** Both modes retain the same post-commit behavior. Inline requests wait for their dependent reactions, and rejected callbacks still produce no reaction. The real HTTP/WASM regression reproduces the missing target transition before the fix.
+
+**Where:** crates/temper-server/src/state/dispatch/wasm/{boxed.rs,invocation_artifacts.rs}; tests/strict_native_callbacks.rs.
+
+## D29: Refuse unavailable PostgreSQL writes and authorize before verification details
+
+**Decision:** Keep PostgreSQL-backed POSTs on their configured runtime, and authorize bound actions and generic entity writes before returning verification status.
+
+**Came up because:** Review identified two PostgreSQL POST paths that could fall through to native actors when the runtime was absent, plus verification responses returned before Cedar authorization. Actual HTTP regressions reproduced native creation and an unauthorized 423 response.
+
+**Options:** Keep conditional runtime dispatch and the early verification check, or refuse the absent runtime and move verification checks after each existing authorization boundary.
+
+**Chose explicit refusal and authorization ordering because:** Missing runtime configuration cannot create entities in another store. Authorized callers still receive verification refusals, while denied callers receive Cedar denials.
+
+**Where:** crates/temper-server/src/odata/{write.rs,bindings.rs}; tests/strict_generic_writes.rs.
+
+## D30: Authorize absent entities without creating them
+
+**Decision:** Build an absent entity's Cedar attributes from its declared initial state without spawning an actor; create it only after authorization and verification pass.
+
+**Came up because:** Review of D29 showed that reading the authorization snapshot created an absent actor and wrote its bootstrap before refusing an unverified action. The regression observed one actor where zero were required.
+
+**Options:** Restore the early verification response, predict the future bootstrap sequence, or authorize a non-creating initial snapshot and compare its attributes after materialization.
+
+**Chose the non-creating snapshot because:** Denied and verification-blocked requests leave the index and journal unchanged. Successful requests retain the real sequence-based concurrency check; a competing creation with different authorization attributes returns a conflict. Storage read errors propagate instead of treating an unavailable store as an absent entity.
+
+**Where:** crates/temper-server/src/state/entity_ops.rs; crates/temper-server/src/odata/{bindings.rs,stream_put.rs}; tests/strict_generic_writes.rs.
+
+D30 caller review: Generic stream uploads also need to materialize their authorized preview before deriving the actual sequence precondition. Both HTTP callers now share this step. Stream callbacks that return success=false produce 409 rather than an apparent successful upload. Read-only publication checks and existing-entity mutation callers retain non-creating snapshot reads.
+
+## D31: Authorize native-runtime delivery with the existing DST limitation recorded
+
+**Decision:** Proceed with ARN-467 native-actor delivery under Rita's explicit exception to the DST marker rule, while retaining the DST-INCOMPLETE assessment and tracking interpreter consolidation in ARN-179.
+
+**Came up because:** The required reviewer found that PostgreSQL SpecDrivenActor has a separate effect interpreter. This predates D28-D30 and prevents a passing marker under .agents/agents/dst-reviewer.md, although the current callback, authorization and stream regressions pass.
+
+**Options:** Consolidate the PostgreSQL interpreter before this delivery, or accept the documented existing limitation for native-actor delivery and keep consolidation open.
+
+**Chose the scoped exception because:** Rita answered “Authorize” to the explicit exception request on 2026-09-08. The delivered runtime uses native actors; this authorization neither declares PostgreSQL effect parity nor changes the DST-INCOMPLETE verdict. Required correctness tests, normal hooks and release reviews still run. ARN-179 remains open with the duplicated interpreter evidence.
+
+**Where:** .agents/agents/dst-reviewer.md; crates/temper-actor-runtime/src/spec_actor.rs; crates/temper-server/src/entity_actor/effects.rs; Linear ARN-179.

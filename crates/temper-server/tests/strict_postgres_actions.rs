@@ -188,6 +188,11 @@ async fn strict_postgres_http_preserves_the_contract_and_acknowledges_only_enque
         .authz
         .reload_tenant_policies("default", "forbid(principal, action, resource);")
         .unwrap();
+    state.registry.write().unwrap().set_verification_status(
+        &TenantId::default(),
+        "Order",
+        VerificationStatus::Pending,
+    );
     for guess in ["wrong guess", "draft note"] {
         let response = client
             .post(&action_url)
@@ -222,6 +227,31 @@ async fn strict_postgres_http_preserves_the_contract_and_acknowledges_only_enque
         .authz
         .reload_tenant_policies("default", "permit(principal, action, resource);")
         .unwrap();
+    for (method, url) in [
+        (reqwest::Method::POST, &action_url),
+        (reqwest::Method::PATCH, &entity_url),
+        (reqwest::Method::PUT, &entity_url),
+        (reqwest::Method::DELETE, &entity_url),
+    ] {
+        let response = client
+            .request(method, url)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::LOCKED);
+        assert_eq!(message_count(&pool, &handle.namespace).await, 0);
+        assert_eq!(actor_state(&pool, &handle).await, initial);
+    }
+    state.registry.write().unwrap().set_verification_status(
+        &TenantId::default(),
+        "Order",
+        VerificationStatus::Completed(EntityVerificationResult {
+            all_passed: true,
+            levels: vec![],
+            verified_at: "2026-09-08T00:00:00Z".into(),
+        }),
+    );
     for body in ["{", "null", "[]", r#"{"Notes":"allowed","forged":true}"#] {
         let response = client
             .post(&action_url)

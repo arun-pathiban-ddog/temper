@@ -177,16 +177,18 @@ impl crate::state::ServerState {
                 // its own WASM trigger; returning before that nested trigger
                 // commits lets concurrent requests observe stale detailed
                 // fields while counters advance.
-                let resp = super::dispatch_tenant_action_core_boxed(
+                let resp = super::dispatch_callback_action_boxed(
                     self,
-                    entity_ref.tenant,
-                    entity_ref.entity_type,
-                    entity_ref.entity_id,
-                    callback_action,
-                    callback_params,
-                    agent_ctx,
-                    true,
-                    None,
+                    crate::state::dispatch::DispatchCommand {
+                        tenant: entity_ref.tenant,
+                        entity_type: entity_ref.entity_type,
+                        entity_id: entity_ref.entity_id,
+                        action: callback_action,
+                        params: callback_params,
+                        agent_ctx,
+                        await_integration: true,
+                        await_reactions: true,
+                    },
                 )
                 .await
                 .map_err(|e| e.to_string())?;

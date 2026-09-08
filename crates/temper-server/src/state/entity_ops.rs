@@ -155,6 +155,7 @@ pub struct FailedLevelInfo {
 /// Snapshot of an entity as seen by Cedar authorization.
 #[derive(Debug, Clone)]
 pub(crate) struct AuthzResourceSnapshot {
+    pub(crate) exists: bool,
     pub(crate) current_state: EntityResponse,
     pub(crate) resource_attrs: BTreeMap<String, serde_json::Value>,
 }
@@ -283,9 +284,45 @@ impl ServerState {
         entity_type: &str,
         entity_id: &str,
     ) -> Result<AuthzResourceSnapshot, String> {
-        let current_state = self
-            .get_tenant_entity_state(tenant, entity_type, entity_id)
-            .await?;
+        let mut exists = self.entity_exists(tenant, entity_type, entity_id);
+        if !exists && let Some((store, _)) = self.event_journal() {
+            let persistence_id = format!("{tenant}:{entity_type}:{entity_id}");
+            exists = store
+                .load_snapshot(&persistence_id)
+                .await
+                .map_err(|error| error.to_string())?
+                .is_some()
+                || !store
+                    .read_events(&persistence_id, 0)
+                    .await
+                    .map_err(|error| error.to_string())?
+                    .is_empty();
+        }
+        let current_state = if exists {
+            self.get_tenant_entity_state(tenant, entity_type, entity_id)
+                .await?
+        } else {
+            let table = {
+                let registry = self.registry.read().map_err(|error| error.to_string())?;
+                registry.get_table(tenant, entity_type)
+            }
+            .or_else(|| self.transition_tables.get(entity_type).cloned())
+            .ok_or_else(|| format!("No transition table for {tenant}/{entity_type}"))?;
+            EntityResponse {
+                success: true,
+                state: EntityActor::build_initial_state(
+                    entity_type,
+                    entity_id,
+                    &table,
+                    &serde_json::json!({}),
+                ),
+                error: None,
+                custom_effects: vec![],
+                scheduled_actions: vec![],
+                spawn_requests: vec![],
+                spec_governed: true,
+            }
+        };
 
         let resource_attrs = self
             .build_authz_resource_attrs(
@@ -298,6 +335,44 @@ impl ServerState {
             .await?;
 
         Ok(AuthzResourceSnapshot {
+            exists,
+            current_state,
+            resource_attrs,
+        })
+    }
+
+    /// Materialize an authorized initial snapshot and retain its authorization attributes.
+    pub(crate) async fn materialize_authorized_snapshot(
+        &self,
+        tenant: &TenantId,
+        entity_type: &str,
+        entity_id: &str,
+        snapshot: AuthzResourceSnapshot,
+    ) -> Result<AuthzResourceSnapshot, super::DispatchError> {
+        if snapshot.exists {
+            return Ok(snapshot);
+        }
+        let current_state = self
+            .get_tenant_entity_state(tenant, entity_type, entity_id)
+            .await
+            .map_err(super::DispatchError::Internal)?;
+        let resource_attrs = self
+            .build_authz_resource_attrs(
+                tenant,
+                entity_type,
+                entity_id,
+                &current_state.state.status,
+                &current_state.state.fields,
+            )
+            .await
+            .map_err(super::DispatchError::Internal)?;
+        if resource_attrs != snapshot.resource_attrs {
+            return Err(super::DispatchError::Conflict(
+                "Entity authorization state changed; retry against current state".into(),
+            ));
+        }
+        Ok(AuthzResourceSnapshot {
+            exists: true,
             current_state,
             resource_attrs,
         })

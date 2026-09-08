@@ -32,6 +32,19 @@ params=["observed","expected_revision"]
 kind="param_equals_field"
 param="expected_revision"
 field="revision"
+[[action.triggers]]
+name="record_completion"
+kind="entity"
+target_entity="Job"
+target_action="Record"
+[action.triggers.resolve_target]
+type="field"
+field="observed"
+[[action]]
+name="Record"
+from=["Idle"]
+to="Done"
+params=[]
 [[action]]
 name="Fail"
 from=["Pending"]
@@ -75,6 +88,7 @@ async fn strict_native_callbacks_run_through_the_actual_wasm_engine() {
             .authz
             .reload_tenant_policies("default", "permit(principal, action, resource);")
             .unwrap();
+        state.rebuild_reaction_dispatcher();
         let payload = json!({"action":"Complete","params":{"observed":"real engine","expected_revision":expected_revision,"unrelated":"generated"},"success":success,"error":if success {""} else {"local execution failed"}}).to_string();
         let data = payload
             .bytes()
@@ -111,6 +125,13 @@ async fn strict_native_callbacks_run_through_the_actual_wasm_engine() {
             .await
             .unwrap();
         assert_eq!(created.status(), reqwest::StatusCode::CREATED);
+        let receipt = client
+            .post(format!("{base}/tdata/Jobs"))
+            .json(&json!({"Id":"real engine"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(receipt.status(), reqwest::StatusCode::CREATED);
         let response = client
             .post(format!(
                 "{base}/tdata/Jobs('job')/Test.Run?await_integration=true"
@@ -149,6 +170,15 @@ async fn strict_native_callbacks_run_through_the_actual_wasm_engine() {
                     .contains("local execution failed")
             );
         }
+        let receipt = state
+            .get_tenant_entity_state(&tenant, "Job", "real engine")
+            .await
+            .unwrap();
+        assert_eq!(
+            receipt.state.status,
+            if status == "Done" { "Done" } else { "Idle" },
+            "a committed inline callback must run its entity reaction; refused callbacks must not"
+        );
         server.abort();
         if status == "Pending" {
             assert!(
