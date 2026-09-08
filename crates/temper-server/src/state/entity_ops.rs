@@ -867,7 +867,7 @@ impl ServerState {
         // Fast-path: check actor registry under read lock.
         {
             let registry = self.actor_registry.read().unwrap();
-            if let Some(actor_ref) = registry.get(&key) {
+            if let Some(actor_ref) = registry.get(&key).filter(|actor| !actor.is_closed()) {
                 self.touch_actor_access(&key);
                 return Ok(actor_ref.clone());
             }
@@ -932,7 +932,7 @@ impl ServerState {
         // the same (tenant, entity_type, entity_id) key.
         let actor_ref = {
             let mut registry = self.actor_registry.write().unwrap();
-            if let Some(existing) = registry.get(&key) {
+            if let Some(existing) = registry.get(&key).filter(|actor| !actor.is_closed()) {
                 return Ok(existing.clone());
             }
             let actor_ref = self.actor_system.spawn(actor, &key);

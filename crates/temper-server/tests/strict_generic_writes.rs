@@ -62,6 +62,48 @@ fn state_with_spec(csdl: &str, spec: &str) -> ServerState {
 }
 
 #[tokio::test]
+async fn static_specs_enforce_strict_generic_write_boundary() {
+    let state = ServerState::with_specs(
+        ActorSystem::new("static-strict"),
+        parse_csdl(common::CSDL_XML).unwrap(),
+        common::CSDL_XML.into(),
+        std::collections::BTreeMap::from([("Order".into(), SPEC.into())]),
+    )
+    .unwrap();
+    state
+        .authz
+        .reload_tenant_policies("default", "permit(principal, action, resource);")
+        .unwrap();
+    let actor = state
+        .get_or_spawn_tenant_actor_with_fields(&TenantId::default(), "Order", "static", json!({}))
+        .unwrap();
+    let _: temper_server::entity_actor::EntityResponse = actor
+        .ask(
+            temper_server::entity_actor::EntityMsg::GetState,
+            std::time::Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+    for method in ["PATCH", "PUT", "DELETE"] {
+        let response = raw_request(
+            &state,
+            method,
+            "/tdata/Orders('static')",
+            json!({"Notes":"change"}).to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["error"]["code"],
+            "StrictActionContract"
+        );
+    }
+}
+
+#[tokio::test]
 async fn generic_pg_write_reports_unavailable_actor_system_without_panicking() {
     let mut state = state();
     state.actor_backed_types.insert("Order".into());

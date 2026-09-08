@@ -475,3 +475,27 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Chose existing boundaries because:** Every existing-row state writer now advances the version, so queued authorization and concurrent activation CAS detect an auxiliary write. Existing child actors retain hydrated execution-time validation; absent children still reject invalid initialization before materialization. Composite event budgets now count the same Created event that staging retains for contracted targets.
 
 **Where:** crates/temper-actor-runtime/src/actor.rs and pg_strict_tests.rs; crates/temper-server/src/state/dispatch/cross_entity.rs and composite.rs; tests/strict_generic_writes/creation.rs.
+
+## D38: Enforce the same parameter and creation contract at every constructor
+
+**Decision:** Reject incompatible inferred parameter types and non-string strict identities, and resolve generic-write contracts through the same registry-first/static-table lookup as actor creation.
+
+**Came up because:** The fresh fa932974 review found that named parameters could require mutually exclusive types, Id/id accepted arbitrary JSON, and with_specs-backed HTTP paths missed the registry-only strict gate.
+
+**Options:** Let every runtime reject impossible inputs later; special-case individual callers; or validate the shared declaration and creation boundaries with the existing table fallback.
+
+**Chose shared boundaries because:** Invalid contracts fail before installation and strict identity values fail before persistence. HTTP constructors retain Cedar authorization before exposing contract failures. The static HTTP fixture was corrected to carry authenticated context before its baseline comparison; its initial 401 was not contract evidence.
+
+**Where:** crates/temper-spec/src/automaton/contracts.rs; crates/temper-jit/src/table/action_contract.rs; crates/temper-server/src/odata/write.rs; tests/strict_generic_writes.rs.
+
+## D39: Preserve queue acknowledgments and execution budgets during recovery
+
+**Decision:** PostgreSQL bound actions acknowledge enqueueing with a message ID; compensation inherits the originating callback budget; a closed cached actor can be replaced under the existing spawn lock.
+
+**Came up because:** Non-strict PostgreSQL actions discarded activation errors and could report completed execution for a stale queued action. Background compensation reset depth to zero. A failed journal activation left a closed actor reference cached while hot retries prevented passivation.
+
+**Options:** Remove version authorization, retry actions under new authority, evict all timed-out actors, or preserve the existing security and concurrency contracts while correcting response and lifecycle boundaries.
+
+**Chose the existing contracts because:** FIFO delivery does not prove the submitted message ran; an enqueue acknowledgment is the accurate result. Compensation remains bounded without changing its service principal. Only closed mailboxes permit replacement, preserving healthy actors on timeout and keeping the durable entity index. D5/D34 deliberately advance cursor and version on deterministic refusal; this is not changed. D23's unconditional Cedar stack isolation remains intentional. The inherited random simulator's empty payload generation is a coverage limitation; current contract proofs use explicit payloads and are not represented as random coverage. D31's native DST exception remains unchanged.
+
+**Where:** crates/temper-server/src/odata/write.rs; state/dispatch/compensation.rs; state/entity_ops.rs; crates/temper-runtime/src/actor/actor_ref.rs; mailbox/mod.rs.

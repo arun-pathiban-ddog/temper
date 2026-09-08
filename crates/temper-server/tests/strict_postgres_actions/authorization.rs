@@ -18,6 +18,15 @@ async fn owner_identity(mut request: Request<Body>, next: Next) -> axum::respons
 
 #[tokio::test]
 async fn queued_authorization_cannot_outlive_its_persisted_owner() {
+    queued_owner_change(true).await;
+}
+
+#[tokio::test]
+async fn non_strict_postgres_actions_acknowledge_queueing_not_execution() {
+    queued_owner_change(false).await;
+}
+
+async fn queued_owner_change(strict: bool) {
     let spec = r#"
 [automaton]
 name = "Order"
@@ -41,13 +50,17 @@ name = "Observe"
 from = ["Draft"]
 params = []
 effect = [{type="increment",var="observations"},{type="emit",event="Observed"}]
-"#;
+"#
+    .replace(
+        "strict_action_params = true",
+        &format!("strict_action_params = {strict}"),
+    );
     let (pool, _container) = pool().await;
     let actors = Arc::new(ActorSystem::new(pool.clone(), SchedulerConfig::default()));
     actors
         .register(Arc::new(
             SpecDrivenActor::from_ioa(
-                spec,
+                &spec,
                 HashMap::from([("Observed".into(), ("Sink".into(), "Record".into()))]),
             )
             .unwrap(),
@@ -59,7 +72,7 @@ effect = [{type="increment",var="observations"},{type="emit",event="Observed"}]
         "default",
         temper_spec::csdl::parse_csdl(CSDL).unwrap(),
         CSDL.into(),
-        &[("Order", spec)],
+        &[("Order", spec.as_str())],
     );
     registry.set_verification_status(
         &TenantId::default(),
@@ -87,10 +100,17 @@ permit(principal == Agent::"bob", action, resource) when { resource.Notes == "bo
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     let id = uuid::Uuid::new_v4().to_string();
-    let handle = actors
-        .spawn(&format!("default/{id}"), "Order")
-        .await
-        .unwrap();
+    let handle = if strict {
+        actors
+            .spawn(&format!("default/{id}"), "Order")
+            .await
+            .unwrap()
+    } else {
+        actors
+            .spawn_with_fields(&format!("default/{id}"), "Order", json!({"Notes":"alice"}))
+            .await
+            .unwrap()
+    };
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(3))
         .build()

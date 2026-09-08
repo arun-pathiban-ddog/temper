@@ -1,6 +1,6 @@
 //! Validate parameter constraints before a specification is installed.
 use super::{ActionConstraint, ActionParam, Automaton, parser::AutomatonParseError};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn category(kind: &str) -> &str {
     match kind {
@@ -48,6 +48,7 @@ pub(super) fn validate(automaton: &Automaton) -> Result<(), AutomatonParseError>
         }
     }
     for action in &automaton.actions {
+        let mut implied_types = BTreeMap::new();
         for constraint in &action.constraints {
             let fail = |reason: &str| {
                 AutomatonParseError::Validation(format!(
@@ -92,6 +93,12 @@ pub(super) fn validate(automaton: &Automaton) -> Result<(), AutomatonParseError>
                 ActionConstraint::ParamNonempty { .. } => Some("string"),
                 _ => field_type,
             };
+            if let Some(required) = required_type
+                && let Some(previous) = implied_types.insert(constraint.param(), required)
+                && previous != required
+            {
+                return Err(fail("parameter constraints require incompatible types"));
+            }
             if let ActionParam::Typed { param_type, .. } = param
                 && required_type.is_some_and(|expected| category(param_type) != expected)
             {
@@ -142,6 +149,24 @@ field = "sequence"
                 assert!(error.to_string().contains("collection field"), "{error}");
             }
         }
+    }
+
+    #[test]
+    fn bare_parameters_must_have_consistent_constraint_types() {
+        let source = spec("counter", "\"value\"", "param_equals_field");
+        let conflicting =
+            format!("{source}\n[[action.constraints]]\nkind=\"param_nonempty\"\nparam=\"value\"\n");
+        assert!(
+            parse_automaton(&conflicting).is_err(),
+            "a number cannot also be a nonempty string"
+        );
+        let conflict = format!(
+            "{source}\n[[action.constraints]]\nkind=\"param_equals_field\"\nparam=\"value\"\nfield=\"Id\"\n"
+        );
+        assert!(
+            parse_automaton(&conflict).is_err(),
+            "identity and counter comparisons disagree"
+        );
     }
 
     #[test]

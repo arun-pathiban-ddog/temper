@@ -69,6 +69,11 @@ impl fmt::Display for ActorId {
 }
 
 impl<M: Message> ActorRef<M> {
+    /// A closed mailbox cannot recover; a new actor incarnation is required.
+    pub fn is_closed(&self) -> bool {
+        self.sender.is_closed()
+    }
+
     /// Send a message to the actor without waiting for a response.
     /// This is the primary communication pattern (tell / fire-and-forget).
     pub fn tell(&self, msg: M) -> Result<(), ActorError> {

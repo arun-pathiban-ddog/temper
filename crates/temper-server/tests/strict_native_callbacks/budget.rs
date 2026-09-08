@@ -94,3 +94,80 @@ on_success = "Tick"
         result.error
     );
 }
+
+#[tokio::test]
+async fn failed_compensation_chain_keeps_the_callback_budget() {
+    let spec = r#"
+[automaton]
+name = "Job"
+states = ["Idle"]
+initial = "Idle"
+strict_action_params = true
+[[state]]
+name = "ticks"
+type = "counter"
+initial = "0"
+[[action]]
+name = "Fail"
+from = ["Idle"]
+params = ["error"]
+guard = "ticks < 12"
+effect = [{type="increment",var="ticks"},{type="trigger",name="failing_job"}]
+[[integration]]
+name = "failing_job"
+trigger = "failing_job"
+type = "wasm"
+module = "failing_job"
+"#;
+    let mut registry = SpecRegistry::new();
+    registry.register_tenant(
+        "default",
+        parse_csdl(CSDL).unwrap(),
+        CSDL.into(),
+        &[("Job", spec)],
+    );
+    let state = ServerState::from_registry(ActorSystem::new("compensation-budget"), registry);
+    state
+        .authz
+        .reload_tenant_policies("default", "permit(principal, action, resource);")
+        .unwrap();
+    let hash = state.wasm_engine.compile_and_cache(br#"(module (memory (export "memory") 1) (func (export "run") (param i32 i32) (result i32) unreachable))"#).unwrap();
+    let tenant = TenantId::default();
+    state
+        .wasm_module_registry
+        .write()
+        .unwrap()
+        .register(&tenant, "failing_job", &hash);
+    let result = state
+        .dispatch(temper_server::state::DispatchCommand {
+            tenant: &tenant,
+            entity_type: "Job",
+            entity_id: "job",
+            action: "Fail",
+            params: json!({"error":"local fixture"}),
+            agent_ctx: &Default::default(),
+            await_integration: false,
+            await_reactions: true,
+        })
+        .await
+        .unwrap();
+    assert!(result.success);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let ticks = state
+            .get_tenant_entity_state(&tenant, "Job", "job")
+            .await
+            .unwrap()
+            .state
+            .counters["ticks"];
+        assert!(
+            ticks <= 9,
+            "failure compensation bypassed callback budget: {ticks}"
+        );
+        if tokio::time::Instant::now() >= deadline {
+            assert!(ticks > 1);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}

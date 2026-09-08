@@ -225,6 +225,7 @@ impl crate::state::ServerState {
                         &entity_id,
                         &action,
                         &e,
+                        &agent_ctx,
                     );
                 }
             }

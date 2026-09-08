@@ -66,7 +66,14 @@ fn strict_generic_write_response(
     let registry = state.registry.read().expect("registry lock poisoned");
     registry
         .get_table(tenant, entity_type)
-        .is_some_and(|table| table.strict_action_params)
+        .map(|table| table.strict_action_params)
+        .or_else(|| {
+            state
+                .transition_tables
+                .get(entity_type)
+                .map(|table| table.strict_action_params)
+        })
+        .unwrap_or(false)
         .then(|| {
             odata_error(
                 StatusCode::METHOD_NOT_ALLOWED,
@@ -855,32 +862,25 @@ pub async fn handle_odata_post(
                 if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
                     return *resp;
                 }
-                let strict = {
+                {
                     let registry = state.registry.read().expect("registry lock poisoned");
-                    if let Some(table) = registry.get_table(&tenant, &entity_type) {
-                        if let Err(error) = table.validate_action_params(
+                    if let Some(table) = registry.get_table(&tenant, &entity_type)
+                        && let Err(error) = table.validate_action_params(
                             action_name,
                             &body_json,
                             &actor_state.fields,
                             &actor_state.counters,
                             &actor_state.booleans,
-                        ) {
-                            return odata_error(
-                                StatusCode::BAD_REQUEST,
-                                "StrictActionContract",
-                                &error,
-                            )
-                            .into_response();
-                        }
-                        table.strict_action_params
-                            || table
-                                .action_contracts
-                                .get(action_name)
-                                .is_some_and(|contract| !contract.constraints.is_empty())
-                    } else {
-                        false
+                        )
+                    {
+                        return odata_error(
+                            StatusCode::BAD_REQUEST,
+                            "StrictActionContract",
+                            &error,
+                        )
+                        .into_response();
                     }
-                };
+                }
                 match actor_sys
                     .tell(
                         None,
@@ -894,35 +894,11 @@ pub async fn handle_odata_post(
                     .await
                 {
                     Ok(message_id) => {
-                        if strict {
-                            // The PG scheduler is asynchronous. Enqueueing does not
-                            // establish which FIFO message will execute next.
-                            return ODataResponse {
-                                status: StatusCode::ACCEPTED,
-                                body: serde_json::json!({"entity_type":entity_type,"entity_id":key_str,"action":action_name,"message_id":message_id,"accepted":true}),
-                            }.into_response();
-                        }
-                        let _ = actor_sys.activate_now(&handle).await;
-                        let body = if let Some(actor_state) =
-                            actor_sys.get_spec_actor_state(&handle).await
-                        {
-                            serde_json::json!({
-                                "entity_type": entity_type,
-                                "entity_id": key_str,
-                                "status": actor_state.status,
-                                "counters": actor_state.counters,
-                                "booleans": actor_state.booleans,
-                                "lists": actor_state.lists,
-                                "fields": actor_state.fields,
-                            })
-                        } else {
-                            serde_json::json!({ "Id": key_str, "action": action_name })
-                        };
+                        // Enqueueing does not establish which FIFO message will execute next.
                         return ODataResponse {
-                            status: StatusCode::OK,
-                            body,
-                        }
-                        .into_response();
+                            status: StatusCode::ACCEPTED,
+                            body: serde_json::json!({"entity_type":entity_type,"entity_id":key_str,"action":action_name,"message_id":message_id,"accepted":true}),
+                        }.into_response();
                     }
                     Err(e) => {
                         return odata_error(

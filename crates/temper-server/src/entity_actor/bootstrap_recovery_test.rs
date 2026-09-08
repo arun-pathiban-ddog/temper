@@ -304,3 +304,95 @@ async fn round_four_lenient_recovery_refuses_unreadable_contracted_prestate() {
         }
     }
 }
+
+#[tokio::test]
+async fn closed_cached_actor_recovers_once_after_journal_outage() {
+    use crate::{ServerState, StorageStack};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+    use temper_runtime::{ActorSystem, tenant::TenantId};
+    let unavailable = Arc::new(AtomicBool::new(true));
+    let mut created = envelope(1, "Created", "", "Draft");
+    created.payload["params"] = serde_json::json!({"Customer":"committed"});
+    let store = BoxedEventStore::new(StaticEventStore {
+        events: vec![created],
+        unavailable: unavailable.clone(),
+        ..Default::default()
+    });
+    let csdl = include_str!("../../../../test-fixtures/specs/model.csdl.xml");
+    let source = ORDER_IOA.replace("[automaton]", "[automaton]\nstrict_action_params = true");
+    let state = ServerState::with_storage_stack(
+        ActorSystem::new("recover-closed"),
+        temper_spec::csdl::parse_csdl(csdl).unwrap(),
+        csdl.into(),
+        BTreeMap::from([("Order".into(), source)]),
+        StorageStack::new(
+            BackendLabel::Turso,
+            store,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+    )
+    .unwrap();
+    let tenant = TenantId::default();
+    let first = state
+        .get_or_spawn_tenant_actor_with_fields(
+            &tenant,
+            "Order",
+            "security-replay",
+            serde_json::json!({}),
+        )
+        .unwrap();
+    assert!(
+        first
+            .ask::<EntityResponse>(EntityMsg::GetState, Duration::from_secs(5))
+            .await
+            .is_err()
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while first.tell(EntityMsg::GetState).is_ok() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("failed activation must close its mailbox");
+    unavailable.store(false, Ordering::SeqCst);
+    let mut callers = tokio::task::JoinSet::new();
+    for _ in 0..16 {
+        let state = state.clone();
+        let tenant = tenant.clone();
+        callers.spawn(async move {
+            state
+                .get_or_spawn_tenant_actor_with_fields(
+                    &tenant,
+                    "Order",
+                    "security-replay",
+                    serde_json::json!({}),
+                )
+                .unwrap()
+        });
+    }
+    let mut incarnations = std::collections::HashSet::new();
+    while let Some(result) = callers.join_next().await {
+        let actor = result.unwrap();
+        assert_ne!(
+            actor.id().uid,
+            first.id().uid,
+            "closed cache entry must be replaced"
+        );
+        incarnations.insert(actor.id().uid);
+        let response: EntityResponse = actor
+            .ask(EntityMsg::GetState, Duration::from_secs(2))
+            .await
+            .unwrap();
+        assert_eq!(response.state.fields["Customer"], "committed");
+    }
+    assert_eq!(incarnations.len(), 1);
+    assert_eq!(state.active_actor_count(), 1);
+}

@@ -11,6 +11,7 @@ struct StaticEventStore {
     events: Vec<PersistenceEnvelope>,
     snapshot: Option<(u64, Vec<u8>)>,
     read_error: Option<String>,
+    unavailable: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl EventStore for StaticEventStore {
@@ -39,6 +40,9 @@ impl EventStore for StaticEventStore {
         _persistence_id: &str,
         from_sequence: u64,
     ) -> Result<Vec<PersistenceEnvelope>, PersistenceError> {
+        if self.unavailable.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(PersistenceError::Storage("injected journal outage".into()));
+        }
         if let Some(error) = &self.read_error {
             return Err(PersistenceError::Storage(error.clone()));
         }
@@ -174,6 +178,7 @@ async fn authoritative_replay_ignores_ahead_stale_snapshot() {
         events: vec![envelope(1, "CancelOrder", "Draft", "Cancelled")],
         snapshot: Some((99, snapshot)),
         read_error: None,
+        unavailable: Arc::default(),
     };
     let boxed = BoxedEventStore::new(store.clone());
 
@@ -317,6 +322,7 @@ async fn authoritative_replay_rejects_malformed_field_update_events() {
         let error = authoritative_replay(StaticEventStore {
             events: vec![malformed],
             read_error: None,
+            unavailable: Arc::default(),
             snapshot: None,
         })
         .await
@@ -357,6 +363,7 @@ async fn authoritative_replay_rejects_non_object_field_update_payloads() {
     let error = authoritative_replay(StaticEventStore {
         events: vec![non_object],
         read_error: None,
+        unavailable: Arc::default(),
         snapshot: None,
     })
     .await

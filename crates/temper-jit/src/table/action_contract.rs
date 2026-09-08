@@ -12,6 +12,40 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn strict_initial_identity_is_a_nonempty_string() {
+        let table = TransitionTable::from_ioa_source(
+            r#"
+[automaton]
+name = "Identity"
+states = ["Ready"]
+initial = "Ready"
+strict_action_params = true
+"#,
+        );
+        for invalid in [
+            json!({"x":1}),
+            json!([]),
+            json!(1),
+            json!(false),
+            Value::Null,
+            json!(""),
+        ] {
+            for key in ["Id", "id"] {
+                assert!(
+                    table
+                        .validate_initial_fields(&json!({key:invalid}))
+                        .is_err()
+                );
+            }
+        }
+        assert!(
+            table
+                .validate_initial_fields(&json!({"Id":"valid","id":"valid"}))
+                .is_ok()
+        );
+    }
+
+    #[test]
     fn constraints_do_not_recreate_missing_persisted_fields_from_defaults() {
         let table = TransitionTable::from_ioa_source(
             r#"
@@ -239,7 +273,11 @@ impl TransitionTable {
             .ok_or_else(|| "Entity creation requires a JSON object".to_owned())?;
         for (key, value) in fields {
             match key.as_str() {
-                "id" | "Id" => {}
+                "id" | "Id" => {
+                    if value.as_str().is_none_or(str::is_empty) {
+                        return Err("Strict entity identity must be a nonempty string".into());
+                    }
+                }
                 "status" | "Status" if value.as_str() == Some(self.initial_state.as_str()) => {}
                 _ => {
                     return Err(format!(
