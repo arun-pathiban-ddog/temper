@@ -176,6 +176,9 @@ jobs:
           if [ "$FOUND" = true ]; then exit 1; fi
           echo "Integrity check: OK"
 
+      - name: Pre-commit exclusion regression
+        run: bash .claude/hooks/test-pre-commit.sh
+
       - name: No unwrap() in production code
         run: |
           # Strip #[cfg(test)] blocks and proc macro crates before scanning.

@@ -19,6 +19,7 @@ mod generated_callbacks;
 pub(crate) mod retry;
 pub(crate) mod state_timeouts;
 #[cfg(test)]
+#[path = "strict_support_test.rs"]
 mod strict_test_support;
 mod wasm;
 pub(crate) use wasm::authorized_http_endpoint_host;

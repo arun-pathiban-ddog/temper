@@ -583,19 +583,21 @@ impl crate::state::ServerState {
         };
         match mode {
             WasmDispatchMode::Inline => {
-                let resp = self
-                    .dispatch_tenant_action_core(
-                        entity_ref.tenant,
-                        entity_ref.entity_type,
-                        entity_ref.entity_id,
-                        callback_action,
-                        callback_params,
+                let resp = super::wasm::dispatch_callback_action_boxed(
+                    self,
+                    crate::state::dispatch::DispatchCommand {
+                        tenant: entity_ref.tenant,
+                        entity_type: entity_ref.entity_type,
+                        entity_id: entity_ref.entity_id,
+                        action: callback_action,
+                        params: callback_params,
                         agent_ctx,
-                        false,
-                        None,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
+                        await_integration: true,
+                        await_reactions: true,
+                    },
+                )
+                .await
+                .map_err(|e| e.to_string())?;
                 if !resp.success {
                     self.record_generated_callback_refusal(
                         entity_ref,

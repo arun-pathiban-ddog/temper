@@ -11,12 +11,17 @@ async fn pg_posts_report_unavailable_runtime_without_creating_native_entities() 
         let response = request(&state, "POST", path, json!({})).await;
         assert_eq!(response, StatusCode::SERVICE_UNAVAILABLE, "{path}");
         assert!(!state.entity_exists(&TenantId::default(), "Order", "missing"));
+        assert_eq!(state.active_actor_count(), 0);
     }
 }
 
 #[tokio::test]
 async fn unauthorized_writes_do_not_reveal_verification_status() {
-    let state = state();
+    let csdl = common::CSDL_XML.replace(
+        "<EntityType Name=\"Order\">",
+        "<EntityType Name=\"Order\" HasStream=\"true\">",
+    );
+    let state = state_with_csdl(&csdl);
     assert_eq!(
         request(&state, "POST", "/tdata/Orders", json!({"id":"valid"})).await,
         StatusCode::CREATED
@@ -42,6 +47,7 @@ async fn unauthorized_writes_do_not_reveal_verification_status() {
             ("POST", "/tdata/Orders('valid')/Temper.SubmitOrder"),
             ("PATCH", "/tdata/Orders('valid')"),
             ("PUT", "/tdata/Orders('valid')"),
+            ("PUT", "/tdata/Orders('valid')/$value"),
             ("DELETE", "/tdata/Orders('valid')"),
         ] {
             assert_eq!(
@@ -216,4 +222,69 @@ async fn first_generic_stream_upload_commits_fields_and_rejected_reupload_is_not
     )
     .await;
     assert_eq!(refused.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn missing_commons_owner_refuses_without_materializing_target() {
+    let state = state();
+    state.registry.write().unwrap().register_tenant(
+        "default",
+        parse_csdl(common::CSDL_XML).unwrap(),
+        common::CSDL_XML.into(),
+        &[
+            ("Order", SPEC),
+            (
+                "Owner",
+                r#"[automaton]
+name="Owner"
+states=["Unverified","Verified"]
+initial="Unverified"
+[[action]]
+name="Verify"
+from=["Unverified"]
+to="Verified"
+"#,
+            ),
+        ],
+    );
+    state.registry.write().unwrap().set_verification_status(
+        &TenantId::default(),
+        "Order",
+        VerificationStatus::Completed(EntityVerificationResult {
+            all_passed: true,
+            levels: vec![],
+            verified_at: "2026-09-08T00:00:00Z".into(),
+        }),
+    );
+    state
+        .commons_guardrail_tenants
+        .write()
+        .unwrap()
+        .insert("default".into());
+    let response = request(
+        &state,
+        "POST",
+        "/tdata/Orders('uncreated')/Temper.SubmitOrder",
+        json!({"OwnerId":"missing-owner"}),
+    )
+    .await;
+    assert_eq!(response, StatusCode::FORBIDDEN);
+    assert_eq!(state.active_actor_count(), 0);
+    assert!(!state.entity_exists(&TenantId::default(), "Order", "uncreated"));
+}
+
+#[tokio::test]
+async fn authorized_collection_creation_rejects_noninitial_status() {
+    let state = state();
+    assert_eq!(
+        request(
+            &state,
+            "POST",
+            "/tdata/Orders",
+            json!({"id":"invalid-status","Status":"Submitted"})
+        )
+        .await,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(state.active_actor_count(), 0);
 }

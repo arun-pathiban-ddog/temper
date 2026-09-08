@@ -398,3 +398,29 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Chose the scoped exception because:** Rita answered “Authorize” to the explicit exception request on 2026-09-08. The delivered runtime uses native actors; this authorization neither declares PostgreSQL effect parity nor changes the DST-INCOMPLETE verdict. Required correctness tests, normal hooks and release reviews still run. ARN-179 remains open with the duplicated interpreter evidence.
 
 **Where:** .agents/agents/dst-reviewer.md; crates/temper-actor-runtime/src/spec_actor.rs; crates/temper-server/src/entity_actor/effects.rs; Linear ARN-179.
+
+
+## D32: Complete callbacks and validate before creating entities
+
+**Decision:** Apply the same full callback dispatch to native adapters and WASM, validate Commons and write guards before materializing an absent target, authorize composite creation with authoritative identity aliases, and return queue acknowledgements for constrained PostgreSQL actions.
+
+**Came up because:** The final review reproduced a missing adapter reaction, a rejected Commons action leaving an entity behind, missing Id/Status attributes in strict composite authorization, and a constrained non-strict PostgreSQL action reporting synchronous success without a committed result.
+
+**Options:** Add caller exceptions, retain the incomplete paths, or apply the established callback and authorization contracts to every affected caller.
+
+**Chose the shared contracts because:** Callback types now finish their declared reactions consistently; refusals leave no target entity; identity cannot be supplied by untrusted composite parameters; and an accepted queue entry is not presented as a successful transition. Shared PostgreSQL test setup also serializes schema creation, while test-only source naming makes the existing CI scanner classify fixtures correctly.
+
+**Where:** crates/temper-server/src/odata/{bindings.rs,write.rs}; crates/temper-server/src/state/dispatch/{adapter.rs,composite/helpers.rs}; tests/strict_postgres_actions.rs; tests/strict_generic_writes/authorization.rs.
+
+
+## D33: Preserve concurrent creation and authorize stream refusals
+
+**Decision:** Reload the PostgreSQL row after an idempotent insert, and authorize both new File and generic stream uploads before reporting verification status.
+
+**Came up because:** A deterministic interleaving test showed activation overwriting fields committed by concurrent creation; the stream HTTP regression returned verification status to a denied caller.
+
+**Options:** Serialize all creators behind another lock, preserve the stale synthesized state, or read the row that actually won insertion; retain the early stream gate or move it behind authorization.
+
+**Chose committed-row reads and authorization first because:** PostgreSQL already arbitrates conflicting inserts, so its durable row supplies the correct state without adding another locking protocol. Stream storage failures now return a read error instead of a misleading missing-resource response. The hook exclusion regression now runs in CI, and creation tests prove an authorized caller cannot choose a non-initial status.
+
+**Where:** crates/temper-actor-runtime/src/pg.rs; crates/temper-actor-runtime/tests/integration/creation_race.rs; crates/temper-server/src/odata/stream_put.rs; .github/workflows/ci.yml.

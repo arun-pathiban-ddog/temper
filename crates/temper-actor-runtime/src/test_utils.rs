@@ -29,9 +29,9 @@ pub async fn setup_test_pg() -> (Pool, Option<ContainerAsync<Postgres>>) {
         static SCHEMA: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
         SCHEMA
             .get_or_init(|| async {
-                crate::schema::create_tables(&pool.get().await.unwrap())
+                crate::schema::create_tables(&pool.get().await.expect("get local test connection"))
                     .await
-                    .unwrap();
+                    .expect("apply local test schema");
             })
             .await;
         return (pool, None);

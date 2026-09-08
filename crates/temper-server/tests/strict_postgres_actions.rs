@@ -12,7 +12,7 @@ use temper_server::{
     ServerState, build_router,
     registry::{EntityVerificationResult, SpecRegistry, VerificationStatus},
 };
-use testcontainers::{ContainerAsync, runners::AsyncRunner};
+use testcontainers::ContainerAsync;
 use testcontainers_modules::postgres::Postgres;
 
 const CSDL: &str = include_str!("../../../test-fixtures/specs/model.csdl.xml");
@@ -39,39 +39,7 @@ field = "Notes"
 "#;
 
 async fn pool() -> (Pool, Option<ContainerAsync<Postgres>>) {
-    let mut config = deadpool_postgres::Config::new();
-    let container = if let Ok(url) = std::env::var("TEMPER_ACTOR_TEST_DATABASE_URL") {
-        let parsed: tokio_postgres::Config = url.parse().unwrap();
-        assert!(
-            parsed.get_hosts().iter().all(|host| matches!(host,
-            tokio_postgres::config::Host::Tcp(name) if name == "127.0.0.1" || name == "localhost"))
-        );
-        assert!(
-            parsed
-                .get_dbname()
-                .is_some_and(|name| name.starts_with("temper_test_"))
-        );
-        config.url = Some(url);
-        None
-    } else {
-        let container = Postgres::default().start().await.unwrap();
-        config.host = Some(container.get_host().await.unwrap().to_string());
-        config.port = Some(container.get_host_port_ipv4(5432).await.unwrap());
-        config.user = Some("postgres".into());
-        config.password = Some("postgres".into());
-        config.dbname = Some("postgres".into());
-        Some(container)
-    };
-    let pool = config
-        .create_pool(
-            Some(deadpool_postgres::Runtime::Tokio1),
-            tokio_postgres::NoTls,
-        )
-        .unwrap();
-    temper_actor_runtime::schema::create_tables(&pool.get().await.unwrap())
-        .await
-        .unwrap();
-    (pool, container)
+    temper_actor_runtime::test_utils::setup_test_pg().await
 }
 
 async fn actor_state(pool: &Pool, handle: &ActorHandle) -> Vec<u8> {
@@ -391,17 +359,21 @@ async fn repeated_process_creation_preserves_existing_fields_and_defaults() {
         let handle = ActorHandle::new(format!("default/{id}"), "Process");
         let initial: Value = serde_json::from_slice(&actor_state(&pool, &handle).await).unwrap();
         assert_eq!(initial["fields"]["Notes"], "draft note");
-        actors
-            .tell(
-                None,
-                &handle,
-                temper_actor_runtime::SpecMessage::with_params(
-                    "SubmitOrder",
-                    json!({"Notes":"kept", "expected_notes":"draft note"}),
-                ),
-            )
+        let response = client
+            .post(format!("{base}/tdata/Processes('{id}')/Temper.SubmitOrder"))
+            .json(&json!({"Notes":"kept", "expected_notes":"draft note"}))
+            .send()
             .await
             .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::ACCEPTED,
+            "constrained requests only acknowledge queueing, strict={strict}"
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&actor_state(&pool, &handle).await).unwrap(),
+            initial
+        );
         actors.activate_now(&handle).await.unwrap();
         let before = actor_state(&pool, &handle).await;
         let fields = if strict {

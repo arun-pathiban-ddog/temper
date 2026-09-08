@@ -172,28 +172,6 @@ pub(super) async fn dispatch_bound_action(
         return super::common::verification_gate_response(error);
     }
 
-    let snapshot = match state
-        .materialize_authorized_snapshot(tenant, entity_type, key_str, authz_snapshot)
-        .await
-    {
-        Ok(snapshot) => snapshot,
-        Err(error) => {
-            return odata_error(
-                if matches!(error, DispatchError::Conflict(_)) {
-                    StatusCode::CONFLICT
-                } else {
-                    StatusCode::INTERNAL_SERVER_ERROR
-                },
-                "AuthorizationStateChanged",
-                &error.to_string(),
-            )
-            .into_response();
-        }
-    };
-    let current_state = snapshot.current_state;
-    let expected_authorization_precondition =
-        crate::entity_actor::effects::entity_authorization_precondition(&current_state.state);
-
     if let Err(resp) = enforce_commons_account_verified_for_action(
         state,
         tenant,
@@ -244,6 +222,28 @@ pub(super) async fn dispatch_bound_action(
         http_span.end_with_timestamp(end_time);
         return resp;
     }
+
+    let snapshot = match state
+        .materialize_authorized_snapshot(tenant, entity_type, key_str, authz_snapshot)
+        .await
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return odata_error(
+                if matches!(error, DispatchError::Conflict(_)) {
+                    StatusCode::CONFLICT
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                },
+                "AuthorizationStateChanged",
+                &error.to_string(),
+            )
+            .into_response();
+        }
+    };
+    let current_state = snapshot.current_state;
+    let expected_authorization_precondition =
+        crate::entity_actor::effects::entity_authorization_precondition(&current_state.state);
 
     // Idempotency cache check
     let actor_key = idempotency_actor_key(tenant, entity_type, key_str);

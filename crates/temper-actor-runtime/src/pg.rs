@@ -278,7 +278,21 @@ impl PgActorActivator {
                 .await
                 .map_err(|e| ActivationError::Storage(format!("create: {e}")))?;
 
-                (initial_state, 0i64, 0i64)
+                // A concurrent spawn may have won CREATE_ACTOR's conflict.
+                // Read the committed row instead of replacing its fields with
+                // the activator's synthesized defaults.
+                let row = tx
+                    .query_one(
+                        schema::LOAD_ACTOR,
+                        &[&actor_handle.namespace, &actor_handle.actor_type],
+                    )
+                    .await
+                    .map_err(|e| ActivationError::Storage(format!("load created actor: {e}")))?;
+                (
+                    row.get::<_, Vec<u8>>("state"),
+                    row.get::<_, i64>("last_msg_id"),
+                    row.get::<_, i64>("version"),
+                )
             }
         };
 

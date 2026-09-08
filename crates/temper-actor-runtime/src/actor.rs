@@ -260,7 +260,7 @@ impl ActorContext {
         let initial_state = self
             .handlers
             .read()
-            .unwrap()
+            .expect("actor handlers lock poisoned")
             .get(actor_type)
             .ok_or_else(|| ActorError::NotFound(actor_type.to_owned()))?
             .initial_state_for(&handle);

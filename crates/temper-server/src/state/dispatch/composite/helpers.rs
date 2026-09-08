@@ -238,15 +238,16 @@ pub(super) fn composite_create_resource_attrs_from_defaults(
     defaults: &CompositeCreateAuthDefaults,
 ) -> BTreeMap<String, Value> {
     let mut resource_attrs = BTreeMap::new();
-    resource_attrs.insert("id".to_string(), Value::String(entity_id.to_string()));
-    resource_attrs.insert(
-        "status".to_string(),
-        Value::String(defaults.initial_state.clone()),
-    );
     if let Value::Object(fields) = params {
         for (key, value) in fields {
             resource_attrs.insert(key.clone(), value.clone());
         }
+    }
+    for name in ["id", "Id"] {
+        resource_attrs.insert(name.into(), Value::String(entity_id.into()));
+    }
+    for name in ["status", "Status"] {
+        resource_attrs.insert(name.into(), Value::String(defaults.initial_state.clone()));
     }
     resource_attrs.insert("has_spec".to_string(), Value::Bool(defaults.has_spec));
     resource_attrs

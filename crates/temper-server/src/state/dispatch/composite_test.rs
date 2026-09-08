@@ -1905,6 +1905,10 @@ field="revision"
 async fn strict_composite_preflight_uses_defaults_and_sequential_target_state() {
     let store = SimEventStore::no_faults(101);
     let state = strict_composite_state(store.clone());
+    state.authz.reload_tenant_policies("default", r#"
+        permit(principal, action == Action::"Create", resource) when {resource.Id == "child" && resource.Status == "Draft"};
+        permit(principal, action == Action::"Update", resource);
+    "#).unwrap();
     let tenant = TenantId::default();
     state.apply_composite_integration_result(&tenant,"Parent","parent","CreateChild",&json!({"sub_writes":[
         {"entity_type":"Child","entity_id":"child","action":"Create","params":{"Name":"first","expected_revision":3}},

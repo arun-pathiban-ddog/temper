@@ -48,13 +48,17 @@ params = []
 "#;
 
 pub(super) fn state() -> ServerState {
+    state_with_spec(SPEC)
+}
+
+pub(super) fn state_with_spec(spec: &str) -> ServerState {
     let csdl = r#"<?xml version="1.0"?><edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx"><edmx:DataServices><Schema Namespace="Temper.StrictTest" xmlns="http://docs.oasis-open.org/odata/ns/edm"><EntityType Name="StrictJob"><Key><PropertyRef Name="Id"/></Key><Property Name="Id" Type="Edm.String" Nullable="false"/></EntityType><EntityContainer Name="Container"><EntitySet Name="StrictJobs" EntityType="Temper.StrictTest.StrictJob"/></EntityContainer></Schema></edmx:DataServices></edmx:Edmx>"#;
     let mut registry = SpecRegistry::new();
     registry.register_tenant(
         "default",
         temper_spec::csdl::parse_csdl(csdl).unwrap(),
         csdl.into(),
-        &[("StrictJob", SPEC)],
+        &[("StrictJob", spec)],
     );
     let state = ServerState::from_registry(ActorSystem::new("strict-native-test"), registry);
     state

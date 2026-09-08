@@ -444,3 +444,6 @@ async fn test_fifo_ordering() {
         .collect();
     assert_eq!(order, vec!["msg-0", "msg-1", "msg-2", "msg-3", "msg-4"]);
 }
+
+#[path = "integration/creation_race.rs"]
+mod creation_race;

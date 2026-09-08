@@ -620,3 +620,49 @@ async fn strict_adapter_stale_callback_is_visible_without_requesting_compensatio
         assert!(refused_is_visible(&state));
     }
 }
+
+#[tokio::test]
+async fn inline_adapter_callback_runs_declared_entity_reactions() {
+    use crate::state::dispatch::strict_test_support;
+    let spec = strict_test_support::SPEC.replace(
+        "[[action]]\nname = \"Rollover\"",
+        r#"[[action.triggers]]
+name="record"
+kind="entity"
+target_entity="StrictJob"
+target_action="Poll"
+[action.triggers.resolve_target]
+type="field"
+field="observed"
+[[action]]
+name = "Rollover""#,
+    );
+    let state = strict_test_support::state_with_spec(&spec);
+    state.rebuild_reaction_dispatcher();
+    let tenant = TenantId::default();
+    let response = state
+        .dispatch_adapter_callback(
+            WasmEntityRef {
+                tenant: &tenant,
+                entity_type: "StrictJob",
+                entity_id: "job",
+            },
+            "Complete",
+            serde_json::json!({"observed":"receipt","expected_revision":1}),
+            &AgentContext::for_service("local-adapter"),
+            WasmDispatchMode::Inline,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(response.success);
+    assert_eq!(
+        state
+            .get_tenant_entity_state(&tenant, "StrictJob", "receipt")
+            .await
+            .unwrap()
+            .state
+            .status,
+        "Done"
+    );
+}

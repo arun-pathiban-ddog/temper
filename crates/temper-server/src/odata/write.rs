@@ -870,6 +870,10 @@ pub async fn handle_odata_post(
                             .into_response();
                         }
                         table.strict_action_params
+                            || table
+                                .action_contracts
+                                .get(action_name)
+                                .is_some_and(|contract| !contract.constraints.is_empty())
                     } else {
                         false
                     }

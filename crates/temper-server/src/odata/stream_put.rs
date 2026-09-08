@@ -85,10 +85,6 @@ pub(super) async fn handle_stream_put(
         return resp;
     }
 
-    if let Err(resp) = check_verification_gate_or_423(state, tenant, &entity_type) {
-        return *resp;
-    }
-
     let content_type = headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
@@ -131,6 +127,9 @@ pub(super) async fn handle_stream_put(
         {
             return response;
         }
+        if let Err(resp) = check_verification_gate_or_423(state, tenant, &entity_type) {
+            return *resp;
+        }
         return match state
             .create_file_with_initial_stream_content_checked(
                 tenant,
@@ -153,7 +152,8 @@ pub(super) async fn handle_stream_put(
     {
         Ok(snapshot) => snapshot,
         Err(error) => {
-            return odata_error(StatusCode::NOT_FOUND, "ResourceNotFound", &error).into_response();
+            return odata_error(StatusCode::INTERNAL_SERVER_ERROR, "ReadError", &error)
+                .into_response();
         }
     };
     if let Err(response) = authorize_mutation(
@@ -172,6 +172,10 @@ pub(super) async fn handle_stream_put(
     {
         return response;
     }
+    if let Err(resp) = check_verification_gate_or_423(state, tenant, &entity_type) {
+        return *resp;
+    }
+
     let snapshot = match state
         .materialize_authorized_snapshot(tenant, &entity_type, &key, snapshot)
         .await
