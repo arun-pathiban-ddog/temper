@@ -511,3 +511,32 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Chose test separation because:** It preserves readable production code and all test behavior without increasing the allowed readability debt.
 
 **Where:** crates/temper-server/src/state/dispatch/mod.rs; crates/temper-server/src/state/dispatch/dispatch_test.rs.
+
+
+## D41: Validate absent dispatches and static child specifications at the existing boundary
+
+**Decision:** Resolve generated child specifications through the shared registry-first/static-table lookup, and preflight invalid first actions before core dispatch materializes an actor.
+
+**Came up because:** The bfc1 review found that with_specs/with_storage_stack children missed strict handling, and direct public dispatch could create an actor and bootstrap before rejecting its input. Both regressions fail on the previous implementation.
+
+**Options:** Restrict supported constructors, add a new authorization layer to core dispatch, or apply the same input contract before creation using the existing noncreating snapshot.
+
+**Chose existing boundaries because:** Static and registry-backed children now share declared initialization and observable refusal. Core validates only absent targets against declared defaults; existing or durably persisted targets still validate hydrated execution-time values. Core and native EntityActor do not themselves evaluate Cedar: HTTP and reactions authorize before calling core. This change preserves that authority model and its denial precedence, without inconsistently adding authorization only to absent targets.
+
+**Where:** crates/temper-server/src/state/dispatch/actions.rs; cross_entity.rs; tests/strict_generic_writes/creation.rs.
+
+
+## D42: Retain explicit parameter types through compilation and serialization
+
+**Decision:** Validate present explicitly typed parameters on strict or constrained actions, preserving omission and bare-name constraint semantics.
+
+**Came up because:** The bfc1 review found that compilation retained only parameter names. A serialized table accepted wrong types even when a parameter explicitly declared uint64; the native simulation also accepted a number for a string at seed zero.
+
+**Options:** Infer all bare-name parameters as strings, rely on optional comparison constraints, or preserve the explicit declaration separately from its allowed name.
+
+**Chose explicit declarations because:** Existing bare-name numeric constraints continue to work, while typed values are checked before state changes and effects in native and PostgreSQL execution. The supported scalar vocabulary follows existing declarations and comparison types: string/status, bool, int/integer, counter/uint64. Signed integers must fit i64; natural numbers must fit u64. Unsupported types and duplicate names fail installation for contracted actions. Legacy uncontracted actions retain their semantics. Table serialization carries the explicit type map; missing parameters stay optional unless required by constraints.
+
+**Where:** crates/temper-spec/src/automaton/contracts.rs; crates/temper-jit/src/table/action_contract.rs; table/builder.rs; crates/temper-server/tests/strict_action_contract.rs; crates/temper-actor-runtime/src/tests/spec_actor_strict/typed.rs.
+
+
+**D41 review follow-up:** The initial early refusal skipped dispatch failure telemetry. Refused first inputs now use the existing failed-response pipeline, which records metrics and a trajectory then returns before entity effects. A regression checks exactly one failed metric and persisted SQLite trajectory while the actor/index and simulation journal/snapshot remain absent. The spec states parameter-contract refusal specifically; this change does not preflight transition guards.

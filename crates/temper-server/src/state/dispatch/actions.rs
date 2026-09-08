@@ -453,6 +453,45 @@ impl crate::state::ServerState {
             return Err(DispatchError::Ungoverned(entity_type.to_string()));
         }
 
+        // Entry points retain their authorization boundary. Invalid first inputs
+        // must not materialize an actor; existing actors validate hydrated state.
+        let table = self.transition_table_for_dispatch(tenant, entity_type)?;
+        if table.has_input_contracts() && !self.entity_exists(tenant, entity_type, entity_id) {
+            let snapshot = self
+                .load_authz_resource_snapshot(tenant, entity_type, entity_id)
+                .await
+                .map_err(DispatchError::Internal)?;
+            if !snapshot.exists {
+                let mut response = snapshot.current_state;
+                if let Err(error) = table.validate_action_params(
+                    action,
+                    &params,
+                    &response.state.fields,
+                    &response.state.counters,
+                    &response.state.booleans,
+                ) {
+                    response.success = false;
+                    response.error = Some(error);
+                    let ctx = PostDispatchContext {
+                        tenant,
+                        entity_type,
+                        entity_id,
+                        action,
+                        agent_ctx,
+                        dispatch_idempotency_key: agent_ctx.idempotency_key.as_deref(),
+                        action_params: &params,
+                        await_integration,
+                    };
+                    let response = self.run_post_dispatch_effects(&ctx, response).await;
+                    tracing::Span::current().record("success", false);
+                    if let Some(error) = &response.error {
+                        tracing::Span::current().record("error_msg", error.as_str());
+                    }
+                    return Ok(response);
+                }
+            }
+        }
+
         // W2 phase: actor_spawn — registry lookup / actor-creation path.
         // Emitted as a child span so `aggregate_spans group by resource_name`
         // slices dispatch latency by phase cleanly.

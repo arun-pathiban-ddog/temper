@@ -282,14 +282,22 @@ impl crate::state::ServerState {
                         format!("{}_id", to_snake_case(&parent_t)),
                         serde_json::Value::String(parent_i.clone()),
                     );
-                    let child_table = state
-                        .registry
-                        .read()
-                        .expect("registry lock poisoned")
-                        .get_table(&t, &child_type);
-                    let strict_child = child_table
-                        .as_ref()
-                        .is_some_and(|table| table.strict_action_params);
+                    let child_table = match state.transition_table_for_dispatch(&t, &child_type) {
+                        Ok(table) => table,
+                        Err(error) => {
+                            state.record_generated_callback_refusal(
+                                super::WasmEntityRef {
+                                    tenant: &t,
+                                    entity_type: &parent_t,
+                                    entity_id: &parent_i,
+                                },
+                                "spawn",
+                                &error.to_string(),
+                            );
+                            return;
+                        }
+                    };
+                    let strict_child = child_table.strict_action_params;
                     if strict_child && initial_action.is_none() {
                         state.record_generated_callback_refusal(
                             super::WasmEntityRef {
@@ -337,7 +345,8 @@ impl crate::state::ServerState {
                         serde_json::Value::Object(parent_fields.clone())
                     };
 
-                    if let (Some(table), Some((action, params))) = (&child_table, &initializer) {
+                    if let Some((action, params)) = &initializer {
+                        let table = &child_table;
                         let validation = state
                             .load_authz_resource_snapshot(&t, &child_type, &child_id)
                             .await

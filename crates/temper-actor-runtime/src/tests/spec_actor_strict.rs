@@ -1,4 +1,6 @@
 //! Strict adapter tests execute the production handler with seeded requests.
+#[path = "spec_actor_strict/typed.rs"]
+mod typed;
 use super::*;
 use prost::Message as _;
 use serde_json::json;
@@ -97,15 +99,6 @@ fn context() -> ActorContext {
         None,
         Default::default(),
     )
-}
-
-#[test]
-fn strict_initial_values_use_the_shared_typed_declarations() {
-    let state: SpecActorState = serde_json::from_slice(&actor(STRICT).initial_state()).unwrap();
-    assert_eq!(state.fields["desired"], "release-a");
-    assert_eq!(state.counters["rounds"], 0);
-    assert!(state.booleans["enabled"]);
-    assert_eq!(state.lists["members"], ["first"]);
 }
 
 #[tokio::test]

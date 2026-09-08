@@ -33,7 +33,7 @@ name = "SubmitOrder"
 kind = "input"
 from = ["Draft"]
 to = "Submitted"
-params = ["Notes", "expected_notes"]
+params = ["Notes", "expected_notes", {name="count",type="uint64"}]
 [[action.constraints]]
 kind = "param_equals_field"
 param = "expected_notes"
@@ -222,7 +222,15 @@ async fn strict_postgres_http_preserves_the_contract_and_acknowledges_only_enque
             verified_at: "2026-09-08T00:00:00Z".into(),
         }),
     );
-    for body in ["{", "null", "[]", r#"{"Notes":"allowed","forged":true}"#] {
+    for body in [
+        "{",
+        "null",
+        "[]",
+        r#"{"Notes":"allowed","forged":true}"#,
+        r#"{"Notes":"requested","expected_notes":"draft note","count":"7"}"#,
+        r#"{"Notes":"requested","expected_notes":"draft note","count":-1}"#,
+        r#"{"Notes":"requested","expected_notes":"draft note","count":7.5}"#,
+    ] {
         let response = client
             .post(&action_url)
             .header("Content-Type", "application/json")
@@ -254,7 +262,7 @@ async fn strict_postgres_http_preserves_the_contract_and_acknowledges_only_enque
     }
     let response = client
         .post(&action_url)
-        .json(&json!({"Notes":"requested", "expected_notes":"draft note"}))
+        .json(&json!({"Notes":"requested", "expected_notes":"draft note", "count":7}))
         .send()
         .await
         .unwrap();

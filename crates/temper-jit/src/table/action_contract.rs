@@ -149,6 +149,9 @@ field = "sequence"
 pub struct ActionContract {
     /// Incoming keys explicitly declared in the IOA action.
     pub params: BTreeSet<String>,
+    /// Explicit types only; bare parameter names retain constraint-inferred semantics.
+    #[serde(default)]
+    pub param_types: BTreeMap<String, String>,
     /// Preconditions checked before effects and field synchronization.
     pub constraints: Vec<ActionConstraint>,
 }
@@ -315,6 +318,22 @@ impl TransitionTable {
                 if !contract.params.contains(key) {
                     return Err(format!(
                         "Action '{action}' does not accept parameter '{key}'"
+                    ));
+                }
+            }
+        }
+        for (name, kind) in &contract.param_types {
+            if let Some(value) = object.get(name) {
+                let valid = match kind.as_str() {
+                    "string" | "status" => value.is_string(),
+                    "bool" => value.is_boolean(),
+                    "int" | "integer" => value.as_i64().is_some(),
+                    "counter" | "uint64" => value.as_u64().is_some(),
+                    _ => false,
+                };
+                if !valid {
+                    return Err(format!(
+                        "Action '{action}' parameter '{name}' has an invalid type"
                     ));
                 }
             }

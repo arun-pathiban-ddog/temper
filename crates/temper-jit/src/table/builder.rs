@@ -158,6 +158,17 @@ impl TransitionTable {
                                 .iter()
                                 .map(|param| param.name().to_owned())
                                 .collect(),
+                            param_types: action
+                                .params
+                                .iter()
+                                .filter_map(|param| match param {
+                                    temper_spec::automaton::ActionParam::Typed {
+                                        name,
+                                        param_type,
+                                    } => Some((name.clone(), param_type.clone())),
+                                    temper_spec::automaton::ActionParam::Named(_) => None,
+                                })
+                                .collect(),
                             constraints: action.constraints.clone(),
                         },
                     )

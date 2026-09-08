@@ -323,3 +323,52 @@ field = "offset"
     let mut sim = simulation(0, &source);
     sim.step("resource", "Observe", r#"{"offset":-1}"#).unwrap();
 }
+
+#[test]
+fn explicit_parameter_types_survive_serialization_and_refuse_before_effects() {
+    for (kind, valid, invalid) in [
+        ("string", serde_json::json!("value"), serde_json::json!(7)),
+        (
+            "status",
+            serde_json::json!("value"),
+            serde_json::json!(false),
+        ),
+        ("bool", serde_json::json!(true), serde_json::json!("true")),
+        ("int", serde_json::json!(-7), serde_json::json!(7.5)),
+        (
+            "integer",
+            serde_json::json!(-7),
+            serde_json::json!(u64::MAX),
+        ),
+        ("counter", serde_json::json!(7), serde_json::json!(-1)),
+        (
+            "uint64",
+            serde_json::json!(u64::MAX),
+            serde_json::json!("7"),
+        ),
+        ("uint64", serde_json::json!(7), serde_json::json!(-1)),
+        ("uint64", serde_json::json!(7), serde_json::json!(7.5)),
+    ] {
+        let source = CONTRACT.replace(
+            "params = [\"observed\"]",
+            &format!(r#"params = ["observed", {{name="value",type="{kind}"}}]"#),
+        );
+        for seed in 0..8 {
+            let mut sim = simulation(seed, &source);
+            let before = sim.events_json("resource");
+            for bad in [invalid.clone(), serde_json::Value::Null] {
+                let input = serde_json::json!({"observed":"release-b","value":bad});
+                assert!(
+                    sim.step("resource", "Observe", &input.to_string()).is_err(),
+                    "accepted invalid {kind} at seed {seed}"
+                );
+                assert_eq!(before, sim.events_json("resource"));
+            }
+            let input = serde_json::json!({"observed":"release-b","value":valid});
+            sim.step("resource", "Observe", &input.to_string()).unwrap();
+            // Explicit types constrain present values; omission stays optional.
+            sim.step("resource", "Observe", r#"{"observed":"release-c"}"#)
+                .unwrap();
+        }
+    }
+}

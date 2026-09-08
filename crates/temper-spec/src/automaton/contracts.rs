@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 fn category(kind: &str) -> &str {
     match kind {
-        "counter" | "int" | "integer" => "integer",
+        "counter" | "uint64" | "int" | "integer" => "integer",
         "status" => "string",
         other => other,
     }
@@ -107,6 +107,30 @@ pub(super) fn validate(automaton: &Automaton) -> Result<(), AutomatonParseError>
                 ));
             }
         }
+        if automaton.automaton.strict_action_params || !action.constraints.is_empty() {
+            let mut names = BTreeSet::new();
+            for param in &action.params {
+                if !names.insert(param.name()) {
+                    return Err(AutomatonParseError::Validation(format!(
+                        "action '{}' declares parameter '{}' more than once",
+                        action.name,
+                        param.name(),
+                    )));
+                }
+                if let ActionParam::Typed { param_type, .. } = param
+                    && !matches!(
+                        param_type.as_str(),
+                        "string" | "status" | "bool" | "int" | "integer" | "counter" | "uint64"
+                    )
+                {
+                    return Err(AutomatonParseError::Validation(format!(
+                        "action '{}' parameter '{}' has an unsupported type",
+                        action.name,
+                        param.name(),
+                    )));
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -137,6 +161,27 @@ field = "sequence"
 "#
         )
     }
+    #[test]
+    fn rejects_unsupported_or_duplicate_explicit_parameter_contracts() {
+        let base = spec(
+            "string",
+            r#"{name="value",type="string"}"#,
+            "param_equals_field",
+        );
+        let unconstrained = base.split("[[action.constraints]]").next().unwrap();
+        assert!(parse_automaton(unconstrained).is_ok());
+        assert!(
+            parse_automaton(&unconstrained.replace("type=\"string\"", "type=\"unknown\"")).is_err()
+        );
+        assert!(
+            parse_automaton(&unconstrained.replace(
+                r#"{name="value",type="string"}"#,
+                r#"{name="value",type="string"}, {name="value",type="bool"}"#,
+            ))
+            .is_err()
+        );
+    }
+
     #[test]
     fn rejects_collection_field_comparisons_before_installation() {
         for field_type in ["list", "set"] {

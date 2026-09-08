@@ -109,6 +109,44 @@ field = "Name"
 
 #[tokio::test]
 async fn invalid_absent_action_contracts_leave_no_entity_or_persistence() {
+    check_invalid_absent_action(false).await;
+}
+
+#[tokio::test]
+async fn invalid_absent_public_dispatch_leaves_no_entity_or_persistence() {
+    check_invalid_absent_action(true).await;
+}
+
+async fn submit_absent(state: &ServerState, body: serde_json::Value, direct: bool) -> StatusCode {
+    if direct {
+        let response = state
+            .dispatch_tenant_action(
+                &TenantId::default(),
+                "Order",
+                "absent",
+                "SubmitOrder",
+                body,
+                &Default::default(),
+            )
+            .await
+            .unwrap();
+        if response.success {
+            StatusCode::OK
+        } else {
+            StatusCode::CONFLICT
+        }
+    } else {
+        request(
+            state,
+            "POST",
+            "/tdata/Orders('absent')/Temper.SubmitOrder",
+            body,
+        )
+        .await
+    }
+}
+
+async fn check_invalid_absent_action(direct: bool) {
     let spec = SPEC
         .replace(
             "params = [\"Notes\"]",
@@ -141,15 +179,20 @@ initial = "7"
     {
         let store = temper_store_sim::SimEventStore::no_faults(467 + index as u64);
         let mut state = state_with_spec(common::CSDL_XML, &spec);
-        state.set_storage_stack(temper_server::StorageStack::from_sim(store.clone(), None));
+        let dir = tempfile::tempdir().unwrap();
+        let audit = temper_store_turso::TursoEventStore::new(
+            dir.path().join("audit.db").to_str().unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+        let audit_stack = temper_server::StorageStack::from_turso(audit);
+        let mut stack = temper_server::StorageStack::from_sim(store.clone(), None);
+        stack.trajectory = audit_stack.trajectory;
+        stack.metadata = audit_stack.metadata;
+        state.set_storage_stack(stack);
         assert_eq!(
-            request(
-                &state,
-                "POST",
-                "/tdata/Orders('absent')/Temper.SubmitOrder",
-                body
-            )
-            .await,
+            submit_absent(&state, body, direct).await,
             StatusCode::CONFLICT
         );
         assert_eq!(
@@ -172,14 +215,31 @@ initial = "7"
                 .unwrap()
                 .is_none()
         );
+        if direct {
+            assert_eq!(
+                state
+                    .metrics
+                    .errors_total
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                1
+            );
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    let entries = state.load_trajectory_entries("default", 10).await;
+                    if !entries.is_empty() {
+                        assert_eq!(entries.len(), 1);
+                        assert_eq!(entries[0].action, "SubmitOrder");
+                        assert!(!entries[0].success);
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
         assert_eq!(
-            request(
-                &state,
-                "POST",
-                "/tdata/Orders('absent')/Temper.SubmitOrder",
-                json!({"Notes":"valid","expected":7})
-            )
-            .await,
+            submit_absent(&state, json!({"Notes":"valid","expected":7}), direct).await,
             StatusCode::OK
         );
         assert_eq!(state.active_actor_count(), 1);
@@ -188,6 +248,16 @@ initial = "7"
 
 #[tokio::test]
 async fn rejected_child_initializer_leaves_no_child_or_persistence() {
+    check_child_initializer(false, "").await;
+}
+
+#[tokio::test]
+async fn static_child_initializer_obeys_its_contract() {
+    check_child_initializer(true, "").await;
+    check_child_initializer(true, "valid").await;
+}
+
+async fn check_child_initializer(use_static: bool, payload: &str) {
     let parent = r#"
 [automaton]
 name = "Order"
@@ -215,14 +285,29 @@ params = ["payload"]
 kind = "param_nonempty"
 param = "payload"
 "#;
-    let (mut state, _) = common::build_single_tenant_state(
-        0,
-        "refused-child",
-        "default",
-        &[("Order", parent), ("Customer", child)],
-    );
     let store = temper_store_sim::SimEventStore::no_faults(467);
-    state.set_storage_stack(temper_server::StorageStack::from_sim(store.clone(), None));
+    let state = if use_static {
+        ServerState::with_storage_stack(
+            ActorSystem::new("static-child"),
+            parse_csdl(common::CSDL_XML).unwrap(),
+            common::CSDL_XML.into(),
+            std::collections::BTreeMap::from([
+                ("Order".into(), parent.into()),
+                ("Customer".into(), child.into()),
+            ]),
+            temper_server::StorageStack::from_sim(store.clone(), None),
+        )
+        .unwrap()
+    } else {
+        let (mut state, _) = common::build_single_tenant_state(
+            0,
+            "refused-child",
+            "default",
+            &[("Order", parent), ("Customer", child)],
+        );
+        state.set_storage_stack(temper_server::StorageStack::from_sim(store.clone(), None));
+        state
+    };
     state
         .authz
         .reload_tenant_policies("default", "permit(principal, action, resource);")
@@ -239,7 +324,7 @@ param = "payload"
             "Order",
             "parent",
             "SpawnChild",
-            json!({"child_id":"child","payload":""}),
+            json!({"child_id":"child","payload":payload}),
             &Default::default(),
         )
         .await
@@ -247,7 +332,14 @@ param = "payload"
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         for _ in 0..32 {
             let event = events.recv().await.unwrap();
+            if !payload.is_empty()
+                && event.entity_id == "child"
+                && event.data["action"] == "Initialize"
+            {
+                return;
+            }
             if event.entity_id == "parent" && event.event_name == "integration_callback_rejected" {
+                assert!(payload.is_empty(), "valid initializer refused: {event:?}");
                 assert_eq!(event.data["action"], "Initialize");
                 return;
             }
@@ -256,6 +348,10 @@ param = "payload"
     })
     .await
     .unwrap();
+    if !payload.is_empty() {
+        assert!(state.entity_exists(&tenant, "Customer", "child"));
+        return;
+    }
     assert_eq!(
         state.active_actor_count(),
         1,
