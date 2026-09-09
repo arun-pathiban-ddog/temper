@@ -6,7 +6,7 @@ use super::{make_store, sqlite_test_url};
 async fn legacy_evolution_tables_gain_default_tenant_ownership() {
     let url = sqlite_test_url("evolution-legacy-migration");
     let path = url.strip_prefix("file:").unwrap();
-    let database = libsql::Builder::new_local(path).build().await.unwrap();
+    let database = turso::Builder::new_local(path).build().await.unwrap();
     let connection = database.connect().unwrap();
     connection
         .execute_batch(

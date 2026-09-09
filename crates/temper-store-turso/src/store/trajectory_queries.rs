@@ -5,7 +5,7 @@
 //! intents, aggregate stats, and the agent- and session-scoped replays —
 //! lives here.
 
-use libsql::params;
+use crate::driver::params;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;
 
@@ -165,8 +165,8 @@ impl TursoEventStore {
         Ok(out)
     }
 
-    /// Parse a trajectory row from a libsql Row (16 columns).
-    fn row_to_trajectory(row: &libsql::Row) -> Result<TursoTrajectoryRow, PersistenceError> {
+    /// Parse a trajectory row from a database row (16 columns).
+    fn row_to_trajectory(row: &crate::driver::Row) -> Result<TursoTrajectoryRow, PersistenceError> {
         Ok(TursoTrajectoryRow {
             tenant: row.get::<String>(0).map_err(storage_error)?,
             entity_type: row.get::<String>(1).map_err(storage_error)?,

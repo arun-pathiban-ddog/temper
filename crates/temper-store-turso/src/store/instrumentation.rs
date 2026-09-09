@@ -40,19 +40,19 @@ pub(super) fn record_turso_query_duration(
 
 /// Connection wrapper that records Turso query/execute latency metrics.
 pub(crate) struct InstrumentedConnection {
-    inner: libsql::Connection,
+    inner: crate::driver::Connection,
 }
 
 impl InstrumentedConnection {
-    pub(super) fn new(inner: libsql::Connection) -> Self {
+    pub(super) fn new(inner: crate::driver::Connection) -> Self {
         Self { inner }
     }
 
     pub(crate) async fn query(
         &self,
         sql: &str,
-        params: impl libsql::params::IntoParams,
-    ) -> Result<libsql::Rows, libsql::Error> {
+        params: impl turso_serverless::params::IntoParams,
+    ) -> Result<crate::driver::Rows, crate::driver::DriverError> {
         let start = Instant::now();
         let result = self.inner.query(sql, params).await;
         record_turso_query_duration(start.elapsed(), "query", "connection", result.is_ok());
@@ -62,8 +62,8 @@ impl InstrumentedConnection {
     pub(crate) async fn execute(
         &self,
         sql: &str,
-        params: impl libsql::params::IntoParams,
-    ) -> Result<u64, libsql::Error> {
+        params: impl turso_serverless::params::IntoParams,
+    ) -> Result<u64, crate::driver::DriverError> {
         let start = Instant::now();
         let result = self.inner.execute(sql, params).await;
         record_turso_query_duration(start.elapsed(), "execute", "connection", result.is_ok());
@@ -72,7 +72,7 @@ impl InstrumentedConnection {
 }
 
 impl Deref for InstrumentedConnection {
-    type Target = libsql::Connection;
+    type Target = crate::driver::Connection;
 
     fn deref(&self) -> &Self::Target {
         &self.inner

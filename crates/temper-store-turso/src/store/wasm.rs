@@ -1,6 +1,6 @@
 //! WASM module storage and invocation log persistence.
 
-use libsql::params;
+use crate::driver::params;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;
 
@@ -294,8 +294,10 @@ impl TursoEventStore {
         Ok(affected > 0)
     }
 
-    /// Parse a WASM module row from a libsql Row (8 columns).
-    fn row_to_wasm_module(row: &libsql::Row) -> Result<TursoWasmModuleRow, PersistenceError> {
+    /// Parse a WASM module row from a database row (8 columns).
+    fn row_to_wasm_module(
+        row: &crate::driver::Row,
+    ) -> Result<TursoWasmModuleRow, PersistenceError> {
         Ok(TursoWasmModuleRow {
             tenant: row.get::<String>(0).map_err(storage_error)?,
             module_name: row.get::<String>(1).map_err(storage_error)?,
@@ -310,9 +312,9 @@ impl TursoEventStore {
         })
     }
 
-    /// Parse a WASM module metadata row from a libsql Row (5 columns).
+    /// Parse a WASM module metadata row from a database row (5 columns).
     fn row_to_wasm_module_metadata(
-        row: &libsql::Row,
+        row: &crate::driver::Row,
     ) -> Result<TursoWasmModuleMetadataRow, PersistenceError> {
         Ok(TursoWasmModuleMetadataRow {
             tenant: row.get::<String>(0).map_err(storage_error)?,

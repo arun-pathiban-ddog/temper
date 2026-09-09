@@ -1,6 +1,6 @@
 # ADR-0176: Use the official Turso engine without a maintained database fork
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-09
 - Decider: Rita Agafonova
 - Related: ADR-0175, ARN-467
@@ -11,7 +11,7 @@ ARN-467 copied libSQL into the kernel repository to repair a connection teardown
 
 ## Decision
 
-Use published stable Turso packages, starting qualification with turso 0.7.2 and turso_serverless 0.1.3. Preserve the existing storage contract: durable event append and replay, atomic writes, tenant isolation, schema migrations, local file data, and remote Turso connections. Remove vendor/libsql and its dedicated patch checks when the replacement passes qualification. Do not introduce another database fork, patch upstream engine internals, silently drop remote support, or change product semantics to fit an incompatible engine.
+Use the published packages turso 0.7.2 and turso_serverless 0.1.3. A private driver adapts their SQL values, rows and transactions to the existing store. Disable the embedded package default features because Temper owns its allocator and does not use full-text search. Preserve the existing storage contract: durable event append and replay, atomic writes, tenant isolation, schema migrations, local file data, and remote Turso connections. Remove vendor/libsql and its dedicated patch checks when the replacement passes qualification. Do not introduce another database fork, patch upstream engine internals, silently drop remote support, or change product semantics to fit an incompatible engine.
 
 ## Readiness gates
 

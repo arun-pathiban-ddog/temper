@@ -5,7 +5,7 @@
 //! per tenant), this table supports multiple entries per tenant, each with its own
 //! `policy_id`, content hash, enabled flag, and audit fields.
 
-use libsql::params;
+use crate::driver::params;
 use sha2::{Digest, Sha256};
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;

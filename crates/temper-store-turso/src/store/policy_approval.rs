@@ -1,6 +1,6 @@
 //! Transactional persistence for Cedar policy approvals.
 
-use libsql::{TransactionBehavior, params};
+use crate::driver::params;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 
 use super::TursoEventStore;
@@ -23,10 +23,7 @@ impl TursoEventStore {
         } = commit;
         let policy_hash = compute_policy_hash(cedar_text);
         let connection = self.configured_connection().await?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(storage_error)?;
+        let transaction = connection.begin_immediate().await.map_err(storage_error)?;
 
         let policy_rows = transaction
             .execute(
@@ -71,10 +68,7 @@ impl TursoEventStore {
         policy_id: &str,
     ) -> Result<(), PersistenceError> {
         let connection = self.configured_connection().await?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(storage_error)?;
+        let transaction = connection.begin_immediate().await.map_err(storage_error)?;
 
         transaction
             .execute(

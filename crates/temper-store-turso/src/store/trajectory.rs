@@ -2,7 +2,7 @@
 //!
 //! The read path lives in the sibling `trajectory_queries` module.
 
-use libsql::params;
+use crate::driver::params;
 use std::time::Duration;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;

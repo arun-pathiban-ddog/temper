@@ -1,6 +1,6 @@
 //! Feature requests, evolution records, and design-time events.
 
-use libsql::params;
+use crate::driver::params;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;
 
@@ -269,7 +269,7 @@ impl TursoEventStore {
 
     /// Parse an evolution record row.
     pub(super) fn row_to_evolution_record(
-        row: &libsql::Row,
+        row: &crate::driver::Row,
     ) -> Result<EvolutionRecordRow, PersistenceError> {
         Ok(EvolutionRecordRow {
             id: row.get::<String>(0).map_err(storage_error)?,

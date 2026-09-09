@@ -1,6 +1,6 @@
-//! [`EventStore`] trait implementation for Turso/libSQL.
+//! [`EventStore`] trait implementation for Turso.
 
-use libsql::{TransactionBehavior, Value, params, params_from_iter};
+use crate::driver::{Value, params, params_from_iter};
 use std::time::Duration;
 use temper_runtime::persistence::{
     EntityVectorCandidate, EntityVectorRow, EventMetadata, EventStore, PersistenceAppend,
@@ -225,10 +225,7 @@ impl EventStore for TursoEventStore {
             .acquire_write_permit("turso.backfill_entity_vectors", WritePriority::Low)
             .await?;
         let conn = self.configured_connection().await?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(storage_error)?;
+        let tx = conn.begin_immediate().await.map_err(storage_error)?;
         tx.execute(
             "DELETE FROM entity_vector_index \
              WHERE tenant = ?1 AND entity_type = ?2 AND entity_id = ?3",
@@ -484,10 +481,7 @@ impl EventStore for TursoEventStore {
             .acquire_write_permit("turso.save_snapshot", WritePriority::Low)
             .await?;
         let conn = self.configured_connection().await?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(storage_error)?;
+        let tx = conn.begin_immediate().await.map_err(storage_error)?;
 
         tx.execute(
             "INSERT INTO snapshots (tenant, entity_type, entity_id, sequence_nr, snapshot)
@@ -825,10 +819,7 @@ impl TursoEventStore {
         let (tenant, entity_type, entity_id) =
             parse_persistence_id_parts(persistence_id).map_err(PersistenceError::Storage)?;
         let conn = self.configured_connection().await?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(storage_error)?;
+        let tx = conn.begin_immediate().await.map_err(storage_error)?;
 
         let select_start = std::time::Instant::now();
         let rows_result = tx
@@ -1002,10 +993,7 @@ impl TursoEventStore {
         }
 
         let conn = self.configured_connection().await?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(storage_error)?;
+        let tx = conn.begin_immediate().await.map_err(storage_error)?;
 
         let mut parsed = Vec::with_capacity(appends.len());
         for append in appends {

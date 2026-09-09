@@ -9,7 +9,7 @@
 //! - [`constraints`]: Tenant-level cross-entity constraints
 //! - [`event_store`]: [`EventStore`] trait implementation
 
-use libsql::{Builder, Database};
+use crate::driver::Database;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use temper_runtime::persistence::{PersistenceError, storage_error};
@@ -68,16 +68,10 @@ impl TursoEventStore {
                 tracing::error!("auth token is required for libsql:// URLs");
                 PersistenceError::Storage("auth token is required for libsql:// URLs".to_string())
             })?;
-            Builder::new_remote(url.to_string(), token.to_string())
-                .build()
-                .await
-                .map_err(storage_error)?
+            Database::remote(url, token).await.map_err(storage_error)?
         } else {
             let local_path = url.strip_prefix("file:").unwrap_or(url);
-            Builder::new_local(local_path)
-                .build()
-                .await
-                .map_err(storage_error)?
+            Database::local(local_path).await.map_err(storage_error)?
         };
 
         let is_remote = url.starts_with("libsql://");
@@ -494,14 +488,8 @@ impl TursoEventStore {
 
     /// Obtain a connection handle to the underlying database.
     ///
-    /// `Database::connect()` returns a lightweight handle, **not** a fresh TCP
-    /// connection each time:
-    /// - **Local SQLite** (`file:` URLs): a handle to the same underlying
-    ///   database file — no network overhead.
-    /// - **Remote Turso** (`libsql://` URLs): a handle drawn from an internal
-    ///   HTTP/gRPC connection pool managed by the `libsql` crate.
-    ///
-    /// It is safe (and cheap) to call this at the start of every method.
+    /// Local connections share the embedded Turso database. Remote connections
+    /// use the official serverless client's HTTP transport.
     pub(crate) fn connection(&self) -> Result<InstrumentedConnection, PersistenceError> {
         Ok(InstrumentedConnection::new(
             self.db.connect().map_err(storage_error)?,

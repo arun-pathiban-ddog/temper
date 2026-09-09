@@ -1,5 +1,5 @@
 //! End-to-end verification of the Phase 4 blob TTL + sweep primitives against
-//! a real local libsql/Turso database (file-backed).
+//! a real local Turso database (file-backed).
 //!
 //! Covers ADR-0047:
 //! - `put_blob` writes with NULL expires_at (permanent).

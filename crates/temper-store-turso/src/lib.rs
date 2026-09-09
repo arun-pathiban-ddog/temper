@@ -1,10 +1,11 @@
 //! # temper-store-turso
 //!
-//! Turso/libSQL storage backend for the Temper actor framework.
+//! Turso storage backend for the Temper actor framework.
 //!
 //! This crate implements the [`EventStore`](temper_runtime::persistence::EventStore)
-//! trait from `temper-runtime` using libSQL (Turso-compatible).
+//! trait using the official embedded Turso engine and remote serverless client.
 
+mod driver;
 mod metrics;
 mod retry;
 pub mod router;

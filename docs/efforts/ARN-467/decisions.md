@@ -567,3 +567,28 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Chose current Turso over a maintained libSQL patch because:** It keeps database implementation maintenance upstream. Qualification must preserve existing data and local/remote behavior; an engine incompatibility will be reported without starting another upstream repair project.
 
 **Where:** ADR-0176; crates/temper-store-turso; codex/arn467-turso-engine.
+
+
+## D45 — Keep local and remote Turso behind the storage adapter
+
+**Decision:** Use the official embedded engine for local files and the official serverless client for remote URLs, with one private adapter for the SQL operations the store uses.
+
+**Came up because:** The two official packages expose separate Rust connection and row types; replacing only the local package would drop working remote support or preserve libSQL.
+
+**Options:** Keep libSQL for remote connections; duplicate all storage queries; change remote writes into local-first sync; adapt the two official packages at the existing store boundary.
+
+**Chose the private adapter because:** It preserves one set of storage queries and direct remote-write semantics without database implementation code in Temper. The embedded package's default allocator and full-text-search features are disabled because Temper controls its allocator and does not use those features.
+
+**Where:** crates/temper-store-turso/src/driver.rs; ADR-0176; PR457.
+
+## D46 — Start local queries before returning rows
+
+**Decision:** Prime local query results in the private driver adapter and retain the first row until the caller reads it.
+
+**Came up because:** The new engine defers execution until `Rows::next`; the previous driver started the statement inside `query`. The regression test `query_executes_configuration_even_when_rows_are_discarded` failed with user_version 0 instead of 17. Temper discards results from configuration queries.
+
+**Options:** Change individual configuration callers; patch the upstream engine; preserve query execution semantics in the existing private adapter.
+
+**Chose the adapter over caller changes or an engine patch because:** It preserves the same contract for every store query without a fork or scattered exceptions. The adapter buffers one row and marks exhausted results so subsequent reads cannot restart a completed statement.
+
+**Where:** `crates/temper-store-turso/src/driver.rs`; `crates/temper-store-turso/src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.

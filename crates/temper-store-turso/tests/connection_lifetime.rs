@@ -14,18 +14,16 @@ fn concurrent_connection_drops_do_not_close_reused_handles() {
                     .build()
                     .unwrap();
                 runtime.block_on(async {
-                    let database = libsql::Builder::new_local(":memory:")
-                        .build()
-                        .await
-                        .unwrap();
+                    let database = turso::Builder::new_local(":memory:").build().await.unwrap();
                     barrier.wait();
                     for cycle in 0..CYCLES {
-                        let connection = database.connect().unwrap();
+                        let mut connection = database.connect().unwrap();
                         connection
-                            .execute("CREATE TABLE proof (value INTEGER)", ())
+                            .execute("CREATE TABLE IF NOT EXISTS proof (value INTEGER)", ())
                             .await
                             .unwrap();
                         let transaction = connection.transaction().await.unwrap();
+                        transaction.execute("DELETE FROM proof", ()).await.unwrap();
                         let value = (worker * CYCLES + cycle) as i64;
                         transaction
                             .execute("INSERT INTO proof VALUES (?1)", [value])
