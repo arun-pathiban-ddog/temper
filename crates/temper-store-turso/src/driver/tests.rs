@@ -1,6 +1,42 @@
 use super::*;
 
 #[tokio::test]
+async fn local_connection_waits_for_a_contended_write_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("contention.db");
+    let db = Database::local(path.to_str().unwrap()).await.unwrap();
+    let owner = db.connect().unwrap();
+    owner
+        .execute("CREATE TABLE committed_values(id INTEGER PRIMARY KEY)", ())
+        .await
+        .unwrap();
+    let tx = owner.begin_immediate().await.unwrap();
+    tx.execute("INSERT INTO committed_values VALUES (1)", ())
+        .await
+        .unwrap();
+
+    let contender = db.connect().unwrap();
+    let write = contender.execute("INSERT INTO committed_values VALUES (2)", ());
+    tokio::pin!(write);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(25), &mut write)
+            .await
+            .is_err(),
+        "a contended write must wait for the owning transaction"
+    );
+    tx.commit().await.unwrap();
+    assert_eq!(write.await.unwrap(), 1);
+    let mut rows = contender
+        .query("SELECT COUNT(*) FROM committed_values", ())
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.next().await.unwrap().unwrap().get::<i64>(0).unwrap(),
+        2
+    );
+}
+
+#[tokio::test]
 async fn local_rows_preserve_positional_and_named_values() {
     let db = Database::local(":memory:").await.unwrap();
     let conn = db.connect().unwrap();

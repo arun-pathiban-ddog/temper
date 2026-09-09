@@ -618,3 +618,16 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Where:** `crates/temper-store-turso/src/driver.rs`; `src/retry.rs`; `src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.
 
 **D48 follow-up:** Fable also identified loss of network-error detail. The base libSQL sender uses Hyper's Display, which includes its source; the new SDK's request and cursor-stream errors retain only flattened messages. Classify those two transport-failure forms at the private adapter too, while leaving HTTP status failures and malformed responses non-transient. The pinned SDK has no finer transport cause available. Retrying a transport failure within the existing budget preserves recovery from resets; it can also retry another connection failure whose finer cause the SDK discarded. No new retry loop, budget, HTTP client or upstream patch is added.
+
+
+## D49 — Preserve the local connection lock-wait default
+
+**Decision:** Set the official Turso connection busy timeout to five seconds when each local connection opens.
+
+**Came up because:** Fable found that the previous driver set this timeout on every connection while the new engine defaults to immediate Busy. Plain store connections, including OTS and tenant writes, do not apply the longer configured-writer timeout. The contended-write regression failed before this correction.
+
+**Options:** Add retries to individual callers; change write concurrency; restore the existing connection default through the public SDK.
+
+**Chose the connection setting because:** It preserves all callers and the existing longer configured timeout without another retry loop or engine patch.
+
+**Where:** `crates/temper-store-turso/src/driver.rs`; `src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.

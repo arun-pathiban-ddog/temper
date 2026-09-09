@@ -57,7 +57,11 @@ impl Database {
 
     pub(crate) fn connect(&self) -> Result<Connection, DriverError> {
         match self {
-            Self::Local(db) => Ok(Connection::Local(db.connect()?)),
+            Self::Local(db) => {
+                let conn = db.connect()?;
+                conn.busy_timeout(std::time::Duration::from_secs(5))?;
+                Ok(Connection::Local(conn))
+            }
             Self::Remote(db) => Ok(Connection::Remote(db.connect()?)),
         }
     }
