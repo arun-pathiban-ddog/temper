@@ -592,3 +592,29 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Chose the adapter over caller changes or an engine patch because:** It preserves the same contract for every store query without a fork or scattered exceptions. The adapter buffers one row and marks exhausted results so subsequent reads cannot restart a completed statement.
 
 **Where:** `crates/temper-store-turso/src/driver.rs`; `crates/temper-store-turso/src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.
+
+## D47 — Close remote streams when their connection leaves scope
+
+**Decision:** The private connection adapter schedules the official serverless client's `close()` when a remote connection drops.
+
+**Came up because:** Grok and Fable identified that the new SDK defers transaction rollback until connection reuse or stream closure. Temper opens a connection per store operation, so returning an error can drop both the transaction and connection; without Close, its server write lock remains until stream expiry. The previous driver scheduled Close on drop.
+
+**Options:** Add explicit cleanup to every store return path; maintain an engine/client fork; restore connection ownership cleanup in the private adapter.
+
+**Chose adapter cleanup over caller-wide changes or a fork because:** It covers success, early errors and cancelled operations at the resource boundary and uses the SDK's public Close operation. Cleanup runs on the existing Tokio runtime, matching the previous driver; shutdown without a runtime is reported rather than starting a separate runtime.
+
+**Where:** `crates/temper-store-turso/src/driver.rs`; the protocol-level close regression in `src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.
+
+## D48 — Preserve retry classification for remote database contention
+
+**Decision:** Preserve the serverless SDK's typed Busy and BusySnapshot errors as a distinct private driver error whose stable text is recognized by the existing store retry boundary.
+
+**Came up because:** Codex showed that transparent error formatting removed the old Hrana stream-error marker. A hosted SQLITE_BUSY response then bypassed the existing retry budget even though retrying the complete operation is valid.
+
+**Options:** Match generic lock-message text for every backend; change the shared kernel persistence error API; retain the remote SDK's typed classification at the adapter boundary.
+
+**Chose typed remote classification because:** It restores remote contention retries without changing local-error behavior or treating constraints and read-only failures as retryable. The public persistence error contract remains unchanged; its existing string boundary receives an explicit remote-busy marker.
+
+**Where:** `crates/temper-store-turso/src/driver.rs`; `src/retry.rs`; `src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.
+
+**D48 follow-up:** Fable also identified loss of network-error detail. The base libSQL sender uses Hyper's Display, which includes its source; the new SDK's request and cursor-stream errors retain only flattened messages. Classify those two transport-failure forms at the private adapter too, while leaving HTTP status failures and malformed responses non-transient. The pinned SDK has no finer transport cause available. Retrying a transport failure within the existing budget preserves recovery from resets; it can also retry another connection failure whose finer cause the SDK discarded. No new retry loop, budget, HTTP client or upstream patch is added.

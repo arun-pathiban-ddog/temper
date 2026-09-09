@@ -86,3 +86,78 @@ async fn query_executes_configuration_even_when_rows_are_discarded() {
         17
     );
 }
+
+#[test]
+fn remote_transient_errors_remain_retryable_without_retrying_permanent_errors() {
+    for error in [
+        turso_serverless::Error::Busy("database is locked".into()),
+        turso_serverless::Error::BusySnapshot("snapshot conflict".into()),
+        turso_serverless::Error::Http("request to https://db.invalid/v3/pipeline failed: error sending request for url (https://db.invalid/v3/pipeline)".into()),
+        turso_serverless::Error::Http("cursor stream failed: error decoding response body".into()),
+    ] {
+        assert!(crate::retry::is_transient_write_error(
+            &DriverError::from(error).to_string()
+        ));
+    }
+    for error in [
+        turso_serverless::Error::Constraint("UNIQUE constraint failed: proof.id".into()),
+        turso_serverless::Error::Readonly("attempt to write a readonly database".into()),
+        turso_serverless::Error::Http("HTTP status 401 Unauthorized".into()),
+        turso_serverless::Error::Http("invalid pipeline response: missing field results".into()),
+    ] {
+        assert!(!crate::retry::is_transient_write_error(
+            &DriverError::from(error).to_string()
+        ));
+    }
+}
+
+#[tokio::test]
+async fn dropping_remote_connection_closes_its_transaction_stream() {
+    use serde_json::json;
+    use wiremock::matchers::{body_partial_json, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v3/pipeline"))
+        .and(body_partial_json(json!({"requests": [
+            {"type": "execute", "stmt": {"sql": "BEGIN IMMEDIATE"}},
+            {"type": "get_autocommit"}
+        ]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "baton": "transaction-stream", "base_url": null,
+            "results": [
+                {"type":"ok", "response":{"type":"execute", "result":{
+                    "cols":[], "rows":[], "affected_row_count":0, "last_insert_rowid":null
+                }}},
+                {"type":"ok", "response":{"type":"get_autocommit", "is_autocommit":false}}
+            ]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let close = Mock::given(method("POST"))
+        .and(path("/v3/pipeline"))
+        .and(body_partial_json(json!({
+            "baton":"transaction-stream", "requests":[{"type":"close"}]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "baton":null, "base_url":null,
+            "results":[{"type":"ok", "response":{"type":"close"}}]
+        })))
+        .expect(1)
+        .mount_as_scoped(&server)
+        .await;
+
+    let db = Database::remote(&server.uri(), "test-token").await.unwrap();
+    let conn = db.connect().unwrap();
+    let tx = conn.begin_immediate().await.unwrap();
+    drop(tx);
+    drop(conn);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        close.wait_until_satisfied(),
+    )
+    .await
+    .expect("dropping the connection must send Close, not wait for server expiry");
+}

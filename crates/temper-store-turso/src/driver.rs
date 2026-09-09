@@ -11,7 +11,28 @@ pub(crate) enum DriverError {
     #[error(transparent)]
     Local(#[from] turso::Error),
     #[error(transparent)]
-    Remote(#[from] turso_serverless::Error),
+    Remote(turso_serverless::Error),
+    #[error("remote Turso busy: {0}")]
+    RemoteBusy(#[source] turso_serverless::Error),
+    #[error("remote Turso transport failure: {0}")]
+    RemoteTransport(#[source] turso_serverless::Error),
+}
+
+impl From<turso_serverless::Error> for DriverError {
+    fn from(error: turso_serverless::Error) -> Self {
+        match error {
+            turso_serverless::Error::Busy(_) | turso_serverless::Error::BusySnapshot(_) => {
+                Self::RemoteBusy(error)
+            }
+            turso_serverless::Error::Http(ref message)
+                if message.starts_with("request to ")
+                    || message.starts_with("cursor stream failed:") =>
+            {
+                Self::RemoteTransport(error)
+            }
+            _ => Self::Remote(error),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -45,6 +66,28 @@ impl Database {
 pub(crate) enum Connection {
     Local(turso::Connection),
     Remote(turso_serverless::Connection),
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        if let Self::Remote(conn) = self {
+            // The SDK defers rollback to connection reuse. Store operations own
+            // separate connections, so close the stream when their scope ends.
+            let conn = conn.clone();
+            match tokio::runtime::Handle::try_current() {
+                Ok(runtime) => {
+                    runtime.spawn(async move {
+                        if let Err(error) = conn.close().await {
+                            tracing::warn!(%error, "failed to close remote Turso connection");
+                        }
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "cannot close remote Turso connection without a runtime");
+                }
+            }
+        }
+    }
 }
 
 impl Connection {
