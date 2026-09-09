@@ -225,6 +225,7 @@ impl crate::state::ServerState {
                         &entity_id,
                         &action,
                         &e,
+                        &agent_ctx,
                     );
                 }
             }
@@ -568,41 +569,82 @@ impl crate::state::ServerState {
         agent_ctx: &AgentContext,
         mode: WasmDispatchMode,
     ) -> Result<Option<EntityResponse>, String> {
+        let Some(callback_ctx) = agent_ctx.for_callback() else {
+            return self
+                .reject_generated_callback(
+                    entity_ref,
+                    callback_action,
+                    "integration callback depth budget exhausted".into(),
+                    mode,
+                )
+                .await;
+        };
+        let agent_ctx = &callback_ctx;
+        let callback_params = match self.prepare_generated_action_params(
+            entity_ref.tenant,
+            entity_ref.entity_type,
+            callback_action,
+            callback_params,
+        ) {
+            Ok(params) => params,
+            Err(error) => {
+                return self
+                    .reject_generated_callback(entity_ref, callback_action, error, mode)
+                    .await;
+            }
+        };
         match mode {
             WasmDispatchMode::Inline => {
-                let resp = self
-                    .dispatch_tenant_action_core(
-                        entity_ref.tenant,
-                        entity_ref.entity_type,
-                        entity_ref.entity_id,
-                        callback_action,
-                        callback_params,
+                let resp = super::wasm::dispatch_callback_action_boxed(
+                    self,
+                    crate::state::dispatch::DispatchCommand {
+                        tenant: entity_ref.tenant,
+                        entity_type: entity_ref.entity_type,
+                        entity_id: entity_ref.entity_id,
+                        action: callback_action,
+                        params: callback_params,
                         agent_ctx,
-                        false,
-                        None,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
+                        await_integration: true,
+                        await_reactions: true,
+                    },
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+                if !resp.success {
+                    self.record_generated_callback_refusal(
+                        entity_ref,
+                        callback_action,
+                        resp.error.as_deref().unwrap_or("callback rejected"),
+                    );
+                }
                 Ok(Some(resp))
             }
             WasmDispatchMode::Background => {
                 let callback_ctx =
                     AgentContext::for_service_inheriting("platform-dispatch", agent_ctx);
-                self.dispatch_tenant_action(
-                    entity_ref.tenant,
-                    entity_ref.entity_type,
-                    entity_ref.entity_id,
-                    callback_action,
-                    callback_params,
-                    &callback_ctx,
-                )
-                .await
-                .map_err(|e| {
-                    let msg =
-                        format!("failed to dispatch adapter callback '{callback_action}': {e}");
-                    tracing::error!(callback = %callback_action, error = %e, "{msg}");
-                    msg
-                })?;
+                let response = self
+                    .dispatch_tenant_action(
+                        entity_ref.tenant,
+                        entity_ref.entity_type,
+                        entity_ref.entity_id,
+                        callback_action,
+                        callback_params,
+                        &callback_ctx,
+                    )
+                    .await
+                    .map_err(|e| {
+                        let msg =
+                            format!("failed to dispatch adapter callback '{callback_action}': {e}");
+                        tracing::error!(callback = %callback_action, error = %e, "{msg}");
+                        msg
+                    })?;
+                if !response.success {
+                    self.record_generated_callback_refusal(
+                        entity_ref,
+                        callback_action,
+                        response.error.as_deref().unwrap_or("callback rejected"),
+                    );
+                }
                 Ok(None)
             }
         }

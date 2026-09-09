@@ -37,6 +37,10 @@ pub struct GenericMessage {
 // ─── Test setup ──────────────────────────────────────────────────────────────
 
 async fn test_pool() -> deadpool_postgres::Pool {
+    #[cfg(feature = "test-utils")]
+    if std::env::var_os("TEMPER_ACTOR_TEST_DATABASE_URL").is_some() {
+        return temper_actor_runtime::test_utils::setup_test_pg().await.0;
+    }
     let pg = POSTGRES
         .get_or_init(|| async {
             let container = Postgres::default()
@@ -440,3 +444,6 @@ async fn test_fifo_ordering() {
         .collect();
     assert_eq!(order, vec!["msg-0", "msg-1", "msg-2", "msg-3", "msg-4"]);
 }
+
+#[path = "integration/creation_race.rs"]
+mod creation_race;

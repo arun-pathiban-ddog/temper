@@ -13,7 +13,7 @@ use temper_runtime::tenant::TenantId;
 
 use super::dispatch::retry;
 use super::{ServerState, projection_backfill};
-use crate::entity_actor::{EntityActor, EntityEvent, EntityMsg, EntityResponse, EntityState};
+use crate::entity_actor::{EntityActor, EntityEvent, EntityMsg, EntityResponse};
 use crate::events::EntityStateChange;
 use crate::registry::{VerificationDetail, VerificationStatus};
 use crate::runtime_metrics;
@@ -155,6 +155,7 @@ pub struct FailedLevelInfo {
 /// Snapshot of an entity as seen by Cedar authorization.
 #[derive(Debug, Clone)]
 pub(crate) struct AuthzResourceSnapshot {
+    pub(crate) exists: bool,
     pub(crate) current_state: EntityResponse,
     pub(crate) resource_attrs: BTreeMap<String, serde_json::Value>,
 }
@@ -283,9 +284,45 @@ impl ServerState {
         entity_type: &str,
         entity_id: &str,
     ) -> Result<AuthzResourceSnapshot, String> {
-        let current_state = self
-            .get_tenant_entity_state(tenant, entity_type, entity_id)
-            .await?;
+        let mut exists = self.entity_exists(tenant, entity_type, entity_id);
+        if !exists && let Some((store, _)) = self.event_journal() {
+            let persistence_id = format!("{tenant}:{entity_type}:{entity_id}");
+            exists = store
+                .load_snapshot(&persistence_id)
+                .await
+                .map_err(|error| error.to_string())?
+                .is_some()
+                || !store
+                    .read_events(&persistence_id, 0)
+                    .await
+                    .map_err(|error| error.to_string())?
+                    .is_empty();
+        }
+        let current_state = if exists {
+            self.get_tenant_entity_state(tenant, entity_type, entity_id)
+                .await?
+        } else {
+            let table = {
+                let registry = self.registry.read().map_err(|error| error.to_string())?;
+                registry.get_table(tenant, entity_type)
+            }
+            .or_else(|| self.transition_tables.get(entity_type).cloned())
+            .ok_or_else(|| format!("No transition table for {tenant}/{entity_type}"))?;
+            EntityResponse {
+                success: true,
+                state: EntityActor::build_initial_state(
+                    entity_type,
+                    entity_id,
+                    &table,
+                    &serde_json::json!({}),
+                ),
+                error: None,
+                custom_effects: vec![],
+                scheduled_actions: vec![],
+                spawn_requests: vec![],
+                spec_governed: true,
+            }
+        };
 
         let resource_attrs = self
             .build_authz_resource_attrs(
@@ -298,6 +335,44 @@ impl ServerState {
             .await?;
 
         Ok(AuthzResourceSnapshot {
+            exists,
+            current_state,
+            resource_attrs,
+        })
+    }
+
+    /// Materialize an authorized initial snapshot and retain its authorization attributes.
+    pub(crate) async fn materialize_authorized_snapshot(
+        &self,
+        tenant: &TenantId,
+        entity_type: &str,
+        entity_id: &str,
+        snapshot: AuthzResourceSnapshot,
+    ) -> Result<AuthzResourceSnapshot, super::DispatchError> {
+        if snapshot.exists {
+            return Ok(snapshot);
+        }
+        let current_state = self
+            .get_tenant_entity_state(tenant, entity_type, entity_id)
+            .await
+            .map_err(super::DispatchError::Internal)?;
+        let resource_attrs = self
+            .build_authz_resource_attrs(
+                tenant,
+                entity_type,
+                entity_id,
+                &current_state.state.status,
+                &current_state.state.fields,
+            )
+            .await
+            .map_err(super::DispatchError::Internal)?;
+        if resource_attrs != snapshot.resource_attrs {
+            return Err(super::DispatchError::Conflict(
+                "Entity authorization state changed; retry against current state".into(),
+            ));
+        }
+        Ok(AuthzResourceSnapshot {
+            exists: true,
             current_state,
             resource_attrs,
         })
@@ -389,6 +464,26 @@ impl ServerState {
             .ok_or_else(|| {
                 format!("No transition table for tenant '{tenant}', entity type '{entity_type}'")
             })
+    }
+
+    /// Validate generic creation before spawning or indexing an entity.
+    pub(crate) fn validate_initial_entity_fields(
+        &self,
+        tenant: &TenantId,
+        entity_type: &str,
+        fields: &serde_json::Value,
+    ) -> Result<(), String> {
+        let registry = self
+            .registry
+            .read()
+            .map_err(|error| format!("registry lock poisoned: {error}"))?;
+        let table = registry
+            .get_table(tenant, entity_type)
+            .or_else(|| self.transition_tables.get(entity_type).cloned())
+            .ok_or_else(|| {
+                format!("No transition table for tenant '{tenant}', entity type '{entity_type}'")
+            })?;
+        table.validate_initial_fields(fields)
     }
 
     /// Build trusted Cedar attributes for a durably absent create target.
@@ -749,6 +844,7 @@ impl ServerState {
             entity_id,
             serde_json::json!({}),
         )
+        .ok()
     }
 
     /// Get or spawn an entity actor with initial fields for a specific tenant.
@@ -759,15 +855,21 @@ impl ServerState {
         entity_type: &str,
         entity_id: &str,
         initial_fields: serde_json::Value,
-    ) -> Option<ActorRef<EntityMsg>> {
+    ) -> Result<ActorRef<EntityMsg>, String> {
+        if !initial_fields
+            .as_object()
+            .is_some_and(|fields| fields.is_empty())
+        {
+            self.validate_initial_entity_fields(tenant, entity_type, &initial_fields)?;
+        }
         let key = format!("{tenant}:{entity_type}:{entity_id}");
 
         // Fast-path: check actor registry under read lock.
         {
             let registry = self.actor_registry.read().unwrap();
-            if let Some(actor_ref) = registry.get(&key) {
+            if let Some(actor_ref) = registry.get(&key).filter(|actor| !actor.is_closed()) {
                 self.touch_actor_access(&key);
-                return Some(actor_ref.clone());
+                return Ok(actor_ref.clone());
             }
         }
 
@@ -784,12 +886,22 @@ impl ServerState {
             self.transition_tables
                 .get(entity_type)
                 .map(|t| Arc::new(RwLock::new((**t).clone())))
+        })
+        .ok_or_else(|| {
+            format!("No transition table for tenant '{tenant}', entity type '{entity_type}'")
         })?;
 
         // Build actor instance (spawn guarded below to avoid duplicate races).
         // ADR-0048 sub-decision 5: every actor gets the shared idempotency
         // cache so it can dedupe duplicate asks produced by retry storms.
         let tenant_blob_store = self.blob_store_for_tenant(tenant).ok();
+        let legacy_blob_store: Option<Arc<dyn crate::storage::BlobStore>> =
+            if tenant == &TenantId::default() {
+                self.platform_metadata_store()
+                    .map(|store| store as Arc<dyn crate::storage::BlobStore>)
+            } else {
+                None
+            };
         let snapshot_queue = self
             .snapshot_write_queue
             .lock()
@@ -812,15 +924,16 @@ impl ServerState {
                 .with_tenant(tenant.as_str())
                 .with_idempotency_cache(self.idempotency_cache.clone())
                 .with_blob_store(tenant_blob_store),
-        };
+        }
+        .with_legacy_blob_store(legacy_blob_store);
 
         // Slow-path: atomically re-check and spawn under write lock.
         // This prevents duplicate actors when concurrent requests race to create
         // the same (tenant, entity_type, entity_id) key.
         let actor_ref = {
             let mut registry = self.actor_registry.write().unwrap();
-            if let Some(existing) = registry.get(&key) {
-                return Some(existing.clone());
+            if let Some(existing) = registry.get(&key).filter(|actor| !actor.is_closed()) {
+                return Ok(existing.clone());
             }
             let actor_ref = self.actor_system.spawn(actor, &key);
             registry.insert(key.clone(), actor_ref.clone());
@@ -839,7 +952,7 @@ impl ServerState {
         self.touch_actor_access(&key);
         runtime_metrics::record_server_state_metrics(self);
 
-        Some(actor_ref)
+        Ok(actor_ref)
     }
 
     /// Remove an entity from the index and actor registry.
@@ -1022,11 +1135,12 @@ impl ServerState {
         entity_id: &str,
         initial_fields: serde_json::Value,
     ) -> Result<EntityResponse, String> {
-        let actor_ref = self
-            .get_or_spawn_tenant_actor_with_fields(tenant, entity_type, entity_id, initial_fields)
-            .ok_or_else(|| {
-                format!("No transition table for tenant '{tenant}', entity type '{entity_type}'")
-            })?;
+        let actor_ref = self.get_or_spawn_tenant_actor_with_fields(
+            tenant,
+            entity_type,
+            entity_id,
+            initial_fields,
+        )?;
 
         let policy = self.dispatch_retry_policy();
         let response = retry::ask_with_backoff::<_, EntityResponse, _>(
@@ -1158,6 +1272,7 @@ impl ServerState {
             .read()
             .expect("transition table lock poisoned")
             .clone();
+        table.validate_initial_fields(&initial_fields)?;
         if !table.rules.is_empty() {
             return Ok(None);
         }
@@ -1172,29 +1287,8 @@ impl ServerState {
         let persistence_id = format!("{tenant}:{entity_type}:{entity_id}");
         let initial_fields =
             crate::entity_actor::effects::sanitize_action_params(&initial_fields).into_owned();
-        let mut fields = initial_fields.clone();
-        crate::entity_actor::effects::canonicalize_entity_fields(
-            &mut fields,
-            entity_id,
-            &table.initial_state,
-        );
-
-        let mut state = EntityState {
-            entity_type: entity_type.to_string(),
-            entity_id: entity_id.to_string(),
-            status: table.initial_state.clone(),
-            item_count: 0,
-            counters: BTreeMap::new(),
-            booleans: BTreeMap::new(),
-            lists: BTreeMap::new(),
-            fields,
-            events: std::collections::VecDeque::new(),
-            total_event_count: 0,
-            events_since_snapshot: 0,
-            last_snapshot_sequence_nr: 0,
-            sequence_nr: 0,
-            processed_idempotency_keys: BTreeMap::new(),
-        };
+        let mut state =
+            EntityActor::build_initial_state(entity_type, entity_id, &table, &initial_fields);
 
         let created = EntityEvent {
             action: "Created".to_string(),
@@ -1204,7 +1298,7 @@ impl ServerState {
             params: initial_fields,
             idempotency_key: None,
         };
-        let payload = serde_json::to_value(&created)
+        let payload = crate::entity_actor::bootstrap::event_payload(&created, &state)
             .map_err(|e| format!("failed to serialize Created event: {e}"))?;
         let envelope = PersistenceEnvelope {
             sequence_nr: 1,

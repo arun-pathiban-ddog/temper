@@ -51,6 +51,7 @@ impl crate::state::ServerState {
         entity_id: &str,
         triggering_action: &str,
         error: &str,
+        parent_ctx: &AgentContext,
     ) {
         let state = self.clone();
         let tenant = tenant.clone();
@@ -58,6 +59,7 @@ impl crate::state::ServerState {
         let entity_id = entity_id.to_string();
         let triggering_action = triggering_action.to_string();
         let error = error.to_string();
+        let parent_ctx = parent_ctx.clone();
         let span = tracing::info_span!(
             "dispatch.integration_failure_compensation",
             tenant = %tenant,
@@ -78,6 +80,7 @@ impl crate::state::ServerState {
                         &entity_id,
                         &triggering_action,
                         &error,
+                        &parent_ctx,
                     )
                     .await;
             }
@@ -94,6 +97,7 @@ impl crate::state::ServerState {
         entity_id: &str,
         triggering_action: &str,
         error: &str,
+        parent_ctx: &AgentContext,
     ) {
         let status = self
             .resolve_entity_status(tenant, entity_type, entity_id)
@@ -122,7 +126,36 @@ impl crate::state::ServerState {
             "error_message": error,
             "trigger_action": triggering_action,
         });
-        let agent_ctx = AgentContext::for_service("integration-compensation");
+        let params =
+            match self.prepare_generated_action_params(tenant, entity_type, &action, params) {
+                Ok(params) => params,
+                Err(error) => {
+                    self.surface_dropped_integration_failure(
+                        tenant,
+                        entity_type,
+                        entity_id,
+                        triggering_action,
+                        status.as_str(),
+                        &error,
+                        "invalid compensation input",
+                    );
+                    return;
+                }
+            };
+        let Some(callback_ctx) = parent_ctx.for_callback() else {
+            self.surface_dropped_integration_failure(
+                tenant,
+                entity_type,
+                entity_id,
+                triggering_action,
+                status.as_str(),
+                error,
+                "callback depth exhausted",
+            );
+            return;
+        };
+        let agent_ctx =
+            AgentContext::for_service_inheriting("integration-compensation", &callback_ctx);
         match self
             .dispatch_tenant_action(tenant, entity_type, entity_id, &action, params, &agent_ctx)
             .await
@@ -330,5 +363,30 @@ to = "Done"
             state.find_failure_transition(&tenant, "Job", "Running"),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod strict_compensation_tests {
+    use super::*;
+    #[tokio::test]
+    async fn strict_compensation_uses_only_declared_failure_parameters() {
+        let state = super::super::strict_test_support::state();
+        let tenant = TenantId::default();
+        super::super::strict_test_support::read(&state).await;
+        state
+            .run_integration_failure_compensation(
+                &tenant,
+                "StrictJob",
+                "job",
+                "Complete",
+                "fixture error",
+                &AgentContext::default(),
+            )
+            .await;
+        let actual = super::super::strict_test_support::read(&state).await;
+        assert_eq!(actual.status, "Failed");
+        assert_eq!(actual.fields["error"], "fixture error");
+        assert!(actual.fields.get("trigger_action").is_none());
     }
 }

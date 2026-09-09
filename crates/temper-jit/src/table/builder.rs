@@ -142,6 +142,38 @@ impl TransitionTable {
                 .collect(),
             state_var_metadata,
             composite_actions,
+            strict_action_params: automaton.automaton.strict_action_params,
+            initial_values: super::action_contract::InitialValues::from_declarations(
+                &automaton.state,
+            ),
+            action_contracts: automaton
+                .actions
+                .iter()
+                .map(|action| {
+                    (
+                        action.name.clone(),
+                        super::action_contract::ActionContract {
+                            params: action
+                                .params
+                                .iter()
+                                .map(|param| param.name().to_owned())
+                                .collect(),
+                            param_types: action
+                                .params
+                                .iter()
+                                .filter_map(|param| match param {
+                                    temper_spec::automaton::ActionParam::Typed {
+                                        name,
+                                        param_type,
+                                    } => Some((name.clone(), param_type.clone())),
+                                    temper_spec::automaton::ActionParam::Named(_) => None,
+                                })
+                                .collect(),
+                            constraints: action.constraints.clone(),
+                        },
+                    )
+                })
+                .collect(),
             rule_index,
         }
     }

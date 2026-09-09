@@ -33,8 +33,7 @@ mod local_tdata_host;
 mod replay_inputs;
 
 pub(super) use boxed::{
-    dispatch_tenant_action_core_boxed, dispatch_wasm_callback_boxed,
-    dispatch_wasm_integrations_boxed,
+    dispatch_callback_action_boxed, dispatch_wasm_callback_boxed, dispatch_wasm_integrations_boxed,
 };
 use boxed::{handle_wasm_failure_boxed, invoke_and_handle_result_boxed};
 use local_tdata_host::LocalTDataWasmHost;

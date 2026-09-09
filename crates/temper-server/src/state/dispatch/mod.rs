@@ -15,8 +15,12 @@ mod compensation;
 mod composite;
 mod cross_entity;
 mod effects;
+mod generated_callbacks;
 pub(crate) mod retry;
 pub(crate) mod state_timeouts;
+#[cfg(test)]
+#[path = "strict_support_test.rs"]
+mod strict_test_support;
 mod wasm;
 pub(crate) use wasm::authorized_http_endpoint_host;
 #[cfg(feature = "observe")]
@@ -418,6 +422,7 @@ impl crate::state::ServerState {
                         &entity_id,
                         &action,
                         &e,
+                        &agent_ctx,
                     );
                 }
             }
@@ -427,70 +432,5 @@ impl crate::state::ServerState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use temper_runtime::ActorSystem;
-    use temper_spec::csdl::parse_csdl;
-
-    fn test_state() -> crate::state::ServerState {
-        let csdl_xml = include_str!("../../../../../test-fixtures/specs/model.csdl.xml");
-        let csdl = parse_csdl(csdl_xml).expect("CSDL should parse");
-        crate::state::ServerState::new(
-            ActorSystem::new("dispatch-wasm-authz-test"),
-            csdl,
-            csdl_xml.to_string(),
-        )
-    }
-
-    #[test]
-    fn wasm_authz_gate_evaluates_cedar_when_policy_set_is_empty() {
-        let state = test_state();
-        state
-            .authz
-            .reload_tenant_policies("test-tenant", "")
-            .expect("empty policy set should parse");
-
-        let gate = state.wasm_authz_gate();
-        let decision = gate.authorize_http_call(
-            "api.example.com",
-            "GET",
-            "https://api.example.com/v1/ping",
-            &WasmAuthzContext::test_fixture(),
-        );
-
-        assert_eq!(
-            decision,
-            WasmAuthzDecision::Deny("no matching permit policy".to_string())
-        );
-    }
-
-    #[test]
-    fn wasm_authz_gate_allows_when_cedar_policy_matches() {
-        let state = test_state();
-        state
-            .authz
-            .reload_tenant_policies(
-                "test-tenant",
-                r#"
-                permit(
-                    principal is Agent,
-                    action == Action::"http_call",
-                    resource is HttpEndpoint
-                ) when {
-                    context.module == "stripe_charge"
-                };
-                "#,
-            )
-            .expect("policy should parse");
-
-        let gate = state.wasm_authz_gate();
-        let decision = gate.authorize_http_call(
-            "api.stripe.com",
-            "POST",
-            "https://api.stripe.com/v1/charges",
-            &WasmAuthzContext::test_fixture(),
-        );
-
-        assert_eq!(decision, WasmAuthzDecision::Allow);
-    }
-}
+#[path = "dispatch_test.rs"]
+mod tests;

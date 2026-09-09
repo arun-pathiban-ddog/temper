@@ -58,12 +58,38 @@ fn parse_json_body_or_400(body: &axum::body::Bytes) -> Result<serde_json::Value,
     })
 }
 
+fn strict_generic_write_response(
+    state: &ServerState,
+    tenant: &TenantId,
+    entity_type: &str,
+) -> Option<axum::response::Response> {
+    let registry = state.registry.read().expect("registry lock poisoned");
+    registry
+        .get_table(tenant, entity_type)
+        .map(|table| table.strict_action_params)
+        .or_else(|| {
+            state
+                .transition_tables
+                .get(entity_type)
+                .map(|table| table.strict_action_params)
+        })
+        .unwrap_or(false)
+        .then(|| {
+            odata_error(
+                StatusCode::METHOD_NOT_ALLOWED,
+                "StrictActionContract",
+                "Strict entities require a declared action for updates and deletion",
+            )
+            .into_response()
+        })
+}
+
 fn invalid_create_body(message: &str) -> ODataWriteError {
     Box::new(odata_error(StatusCode::BAD_REQUEST, "InvalidBody", message).into_response())
 }
 
 fn prepare_collection_create_fields(
-    body: serde_json::Value,
+    body: &serde_json::Value,
     entity_type: &str,
     initial_status: &str,
 ) -> Result<(String, serde_json::Value), ODataWriteError> {
@@ -105,16 +131,6 @@ fn prepare_collection_create_fields(
             format!("{prefix}{}", temper_runtime::scheduler::sim_uuid())
         });
 
-    for key in ["status", "Status"] {
-        if let Some(value) = fields.get(key)
-            && value.as_str() != Some(initial_status)
-        {
-            return Err(invalid_create_body(&format!(
-                "{key} must equal the spec-defined initial state '{initial_status}'"
-            )));
-        }
-    }
-
     fields.retain(|key, _| !temper_spec::automaton::is_server_derived_field_name(key));
     for key in ["id", "Id"] {
         fields.insert(
@@ -129,6 +145,22 @@ fn prepare_collection_create_fields(
         );
     }
     Ok((entity_id, serde_json::Value::Object(fields)))
+}
+
+fn validate_collection_create_status(
+    body: &serde_json::Value,
+    initial_status: &str,
+) -> Result<(), ODataWriteError> {
+    for key in ["status", "Status"] {
+        if let Some(value) = body.get(key)
+            && value.as_str() != Some(initial_status)
+        {
+            return Err(invalid_create_body(&format!(
+                "{key} must equal the spec-defined initial state '{initial_status}'"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn resolve_entity_type_or_404(
@@ -264,6 +296,91 @@ fn ensure_entity_exists_or_404(
             .into_response(),
         ))
     }
+}
+
+async fn authorize_pg_mutation(
+    state: &ServerState,
+    tenant: &TenantId,
+    entity_type: &str,
+    entity_id: &str,
+    action: &str,
+    security_ctx: &temper_authz::SecurityContext,
+    agent_ctx: &AgentContext,
+) -> Result<(temper_actor_runtime::spec_actor::SpecActorState, i64), ODataWriteError> {
+    let actor_sys = state.pg_actor_system.as_ref().ok_or_else(|| {
+        Box::new(
+            odata_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "ActorSystemUnavailable",
+                "The actor system for this resource is unavailable",
+            )
+            .into_response(),
+        )
+    })?;
+    let namespace = format!("{tenant}/{entity_id}");
+    let (state_bytes, version) = match actor_sys
+        .load_state_with_version(&namespace, entity_type)
+        .await
+    {
+        Ok(Some(snapshot)) => snapshot,
+        Ok(None) => {
+            return Err(Box::new(
+                odata_error(
+                    StatusCode::NOT_FOUND,
+                    "ResourceNotFound",
+                    &format!("Entity '{entity_type}' with key '{entity_id}' not found"),
+                )
+                .into_response(),
+            ));
+        }
+        Err(error) => {
+            return Err(Box::new(
+                odata_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "ActorReadError",
+                    &error.to_string(),
+                )
+                .into_response(),
+            ));
+        }
+    };
+    let actor_state: temper_actor_runtime::spec_actor::SpecActorState =
+        match serde_json::from_slice(&state_bytes) {
+            Ok(value) => value,
+            Err(_) => {
+                return Err(Box::new(
+                    odata_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "ActorReadError",
+                        "Stored actor state is invalid",
+                    )
+                    .into_response(),
+                ));
+            }
+        };
+    let authz_body = serde_json::json!({
+        "entity_id": entity_id,
+        "status": actor_state.status,
+        "fields": actor_state.fields,
+    });
+    let attrs = resource_attrs_from_body(state, tenant, entity_type, entity_id, &authz_body);
+    if let Err(response) = authorize_mutation(
+        state,
+        tenant,
+        security_ctx,
+        agent_ctx,
+        action,
+        MutationResource {
+            entity_type,
+            entity_id,
+            attrs: &attrs,
+        },
+    )
+    .await
+    {
+        return Err(Box::new(response));
+    }
+    Ok((actor_state, version))
 }
 
 async fn authorize_existing_mutation(
@@ -409,10 +526,6 @@ pub async fn handle_odata_post(
                 Ok(t) => t,
                 Err(resp) => return *resp,
             };
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
-            }
-
             let body_json = match parse_json_body_or_400(&body) {
                 Ok(v) => v,
                 Err(resp) => return *resp,
@@ -426,7 +539,7 @@ pub async fn handle_odata_post(
                 }
             };
             let (entity_id, initial_fields) =
-                match prepare_collection_create_fields(body_json, &entity_type, &initial_status) {
+                match prepare_collection_create_fields(&body_json, &entity_type, &initial_status) {
                     Ok(prepared) => prepared,
                     Err(response) => return *response,
                 };
@@ -442,6 +555,18 @@ pub async fn handle_odata_post(
             .await
             {
                 return *resp;
+            }
+            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                return *resp;
+            }
+            if let Err(resp) = validate_collection_create_status(&body_json, &initial_status) {
+                return *resp;
+            }
+            if let Err(error) =
+                state.validate_initial_entity_fields(&tenant, &entity_type, &initial_fields)
+            {
+                return odata_error(StatusCode::BAD_REQUEST, "StrictActionContract", &error)
+                    .into_response();
             }
             let _commons_guardrail_lock = state.acquire_commons_write_guardrail_lock(&tenant).await;
 
@@ -580,29 +705,21 @@ pub async fn handle_odata_post(
             }
 
             // PG-backed entity creation.
-            if state.is_pg_actor_backed(&tenant, &entity_type)
-                && let Some(actor_sys) = &state.pg_actor_system
-            {
-                let namespace = format!("{tenant}/{entity_id}");
-                let spawn_result = if entity_type == "Process" {
-                    actor_sys.spawn_all_registered(&namespace).await
-                } else {
-                    actor_sys
-                        .spawn_with_fields(&namespace, &entity_type, initial_fields.clone())
-                        .await
-                        .map(|_| ())
+            if state.is_pg_actor_backed(&tenant, &entity_type) {
+                let Some(actor_sys) = &state.pg_actor_system else {
+                    return odata_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "ActorSystemUnavailable",
+                        "The actor system for this resource is unavailable",
+                    )
+                    .into_response();
                 };
+                let namespace = format!("{tenant}/{entity_id}");
+                let spawn_result = actor_sys
+                    .spawn_with_fields(&namespace, &entity_type, initial_fields.clone())
+                    .await;
                 match spawn_result {
                     Ok(_) => {
-                        if entity_type == "Process" {
-                            let handle = temper_actor_runtime::ActorHandle::new(
-                                namespace.clone(),
-                                entity_type.clone(),
-                            );
-                            let _ = actor_sys
-                                .update_actor_fields(&handle, initial_fields.clone(), false)
-                                .await;
-                        }
                         return ODataResponse {
                             status: StatusCode::CREATED,
                             body: serde_json::json!({
@@ -682,7 +799,14 @@ pub async fn handle_odata_post(
         }
 
         ODataPath::BoundAction { parent, action } => {
-            let body_json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+            let body_json = if body.iter().all(u8::is_ascii_whitespace) {
+                serde_json::json!({})
+            } else {
+                match parse_json_body_or_400(&body) {
+                    Ok(value) => value,
+                    Err(response) => return *response,
+                }
+            };
 
             let (set_name, key_str) = match *parent {
                 ODataPath::Entity(ref set, ref key) => (set.clone(), extract_key(key)),
@@ -708,60 +832,54 @@ pub async fn handle_odata_post(
                 Err(resp) => return *resp,
             };
 
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
-            }
-
-            if state.is_pg_actor_backed(&tenant, &entity_type)
-                && let Some(actor_sys) = &state.pg_actor_system
-            {
+            if state.is_pg_actor_backed(&tenant, &entity_type) {
+                let Some(actor_sys) = &state.pg_actor_system else {
+                    return odata_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "ActorSystemUnavailable",
+                        "The actor system for this resource is unavailable",
+                    )
+                    .into_response();
+                };
                 let namespace = format!("{tenant}/{key_str}");
                 let handle =
                     temper_actor_runtime::ActorHandle::new(namespace.clone(), entity_type.clone());
                 let action_name = action.rsplit('.').next().unwrap_or(&action);
-                let state_bytes = match actor_sys.load_state(&namespace, &entity_type).await {
-                    Ok(Some(state_bytes)) => state_bytes,
-                    Ok(None) => {
-                        return odata_error(
-                            StatusCode::NOT_FOUND,
-                            "ResourceNotFound",
-                            &format!("Entity '{set_name}' with key '{key_str}' not found"),
-                        )
-                        .into_response();
-                    }
-                    Err(error) => {
-                        return odata_error(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "ActorReadError",
-                            &error.to_string(),
-                        )
-                        .into_response();
-                    }
-                };
-                let actor_state: temper_actor_runtime::spec_actor::SpecActorState =
-                    serde_json::from_slice(&state_bytes).unwrap_or_default();
-                let authz_body = serde_json::json!({
-                    "entity_id": key_str,
-                    "status": actor_state.status,
-                    "fields": actor_state.fields,
-                });
-                let attrs =
-                    resource_attrs_from_body(&state, &tenant, &entity_type, &key_str, &authz_body);
-                if let Err(response) = authorize_mutation(
+                let (actor_state, authorization_version) = match authorize_pg_mutation(
                     &state,
                     &tenant,
+                    &entity_type,
+                    &key_str,
+                    &action,
                     &security_ctx,
                     &agent_ctx,
-                    &action,
-                    MutationResource {
-                        entity_type: &entity_type,
-                        entity_id: &key_str,
-                        attrs: &attrs,
-                    },
                 )
                 .await
                 {
-                    return response;
+                    Ok(state) => state,
+                    Err(response) => return *response,
+                };
+                if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                    return *resp;
+                }
+                {
+                    let registry = state.registry.read().expect("registry lock poisoned");
+                    if let Some(table) = registry.get_table(&tenant, &entity_type)
+                        && let Err(error) = table.validate_action_params(
+                            action_name,
+                            &body_json,
+                            &actor_state.fields,
+                            &actor_state.counters,
+                            &actor_state.booleans,
+                        )
+                    {
+                        return odata_error(
+                            StatusCode::BAD_REQUEST,
+                            "StrictActionContract",
+                            &error,
+                        )
+                        .into_response();
+                    }
                 }
                 match actor_sys
                     .tell(
@@ -770,32 +888,17 @@ pub async fn handle_odata_post(
                         temper_actor_runtime::spec_actor::SpecMessage::with_params(
                             action_name,
                             body_json.clone(),
-                        ),
+                        )
+                        .if_state_version(authorization_version),
                     )
                     .await
                 {
-                    Ok(_) => {
-                        let _ = actor_sys.activate_now(&handle).await;
-                        let body = if let Some(actor_state) =
-                            actor_sys.get_spec_actor_state(&handle).await
-                        {
-                            serde_json::json!({
-                                "entity_type": entity_type,
-                                "entity_id": key_str,
-                                "status": actor_state.status,
-                                "counters": actor_state.counters,
-                                "booleans": actor_state.booleans,
-                                "lists": actor_state.lists,
-                                "fields": actor_state.fields,
-                            })
-                        } else {
-                            serde_json::json!({ "Id": key_str, "action": action_name })
-                        };
+                    Ok(message_id) => {
+                        // Enqueueing does not establish which FIFO message will execute next.
                         return ODataResponse {
-                            status: StatusCode::OK,
-                            body,
-                        }
-                        .into_response();
+                            status: StatusCode::ACCEPTED,
+                            body: serde_json::json!({"entity_type":entity_type,"entity_id":key_str,"action":action_name,"message_id":message_id,"accepted":true}),
+                        }.into_response();
                     }
                     Err(e) => {
                         return odata_error(
@@ -863,8 +966,28 @@ pub async fn handle_odata_patch(
             };
             let key_str = extract_key(&key);
 
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
+            // PG instances are authorized from their persisted state, before
+            // refusing verbs that the strict type does not support.
+            if state.is_pg_actor_backed(&tenant, &entity_type)
+                && let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type)
+            {
+                if let Err(error) = authorize_pg_mutation(
+                    &state,
+                    &tenant,
+                    &entity_type,
+                    &key_str,
+                    UPDATE_ACTION,
+                    &security_ctx,
+                    &agent_ctx,
+                )
+                .await
+                {
+                    return *error;
+                }
+                if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                    return *resp;
+                }
+                return response;
             }
             if let Err(resp) =
                 ensure_entity_exists_or_404(&state, &tenant, &entity_type, &set_name, &key_str)
@@ -885,6 +1008,12 @@ pub async fn handle_odata_patch(
                 Ok(existing) => existing,
                 Err(resp) => return *resp,
             };
+            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                return *resp;
+            }
+            if let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type) {
+                return response;
+            }
 
             let body_json = match parse_json_body_or_400(&body) {
                 Ok(v) => v,
@@ -1057,8 +1186,28 @@ pub async fn handle_odata_put(
             };
             let key_str = extract_key(&key);
 
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
+            // PG instances are authorized from their persisted state, before
+            // refusing verbs that the strict type does not support.
+            if state.is_pg_actor_backed(&tenant, &entity_type)
+                && let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type)
+            {
+                if let Err(error) = authorize_pg_mutation(
+                    &state,
+                    &tenant,
+                    &entity_type,
+                    &key_str,
+                    UPDATE_ACTION,
+                    &security_ctx,
+                    &agent_ctx,
+                )
+                .await
+                {
+                    return *error;
+                }
+                if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                    return *resp;
+                }
+                return response;
             }
             if let Err(resp) =
                 ensure_entity_exists_or_404(&state, &tenant, &entity_type, &set_name, &key_str)
@@ -1079,6 +1228,12 @@ pub async fn handle_odata_put(
                 Ok(existing) => existing,
                 Err(resp) => return *resp,
             };
+            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                return *resp;
+            }
+            if let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type) {
+                return response;
+            }
 
             let body_json = match parse_json_body_or_400(&body) {
                 Ok(v) => v,
@@ -1251,8 +1406,28 @@ pub async fn handle_odata_delete(
             };
             let key_str = extract_key(&key);
 
-            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
-                return *resp;
+            // PG instances are authorized from their persisted state, before
+            // refusing verbs that the strict type does not support.
+            if state.is_pg_actor_backed(&tenant, &entity_type)
+                && let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type)
+            {
+                if let Err(error) = authorize_pg_mutation(
+                    &state,
+                    &tenant,
+                    &entity_type,
+                    &key_str,
+                    DELETE_ACTION,
+                    &security_ctx,
+                    &agent_ctx,
+                )
+                .await
+                {
+                    return *error;
+                }
+                if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                    return *resp;
+                }
+                return response;
             }
             if let Err(resp) =
                 ensure_entity_exists_or_404(&state, &tenant, &entity_type, &set_name, &key_str)
@@ -1273,6 +1448,12 @@ pub async fn handle_odata_delete(
                 Ok(existing) => existing,
                 Err(resp) => return *resp,
             };
+            if let Err(resp) = check_verification_gate_or_423(&state, &tenant, &entity_type) {
+                return *resp;
+            }
+            if let Some(response) = strict_generic_write_response(&state, &tenant, &entity_type) {
+                return response;
+            }
             if let Err(v) =
                 pre_delete_relation_checks(&state, &tenant, &entity_type, &key_str, "delete").await
             {

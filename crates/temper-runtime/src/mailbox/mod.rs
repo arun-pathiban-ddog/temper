@@ -49,6 +49,11 @@ pub fn mailbox<M: Message>(capacity: usize) -> (MailboxSender<M>, MailboxReceive
 }
 
 impl<M: Message> MailboxSender<M> {
+    /// Whether the actor has permanently dropped its receiving mailbox.
+    pub fn is_closed(&self) -> bool {
+        self.inner.is_closed()
+    }
+
     /// Send a message to the mailbox. Returns MailboxFull if at capacity.
     /// TigerStyle: This never blocks. Full is an error, not a wait condition.
     pub fn send(&self, msg: Envelope<M>) -> Result<(), ActorError> {

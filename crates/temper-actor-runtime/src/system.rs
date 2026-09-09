@@ -25,12 +25,13 @@ impl ActorSystem {
     /// Create a new actor system backed by PG.
     pub fn new(pool: Pool, scheduler_config: SchedulerConfig) -> Self {
         let mailbox = Arc::new(PgMailbox::new(pool.clone(), PgMailboxConfig::default()));
-        let activator = PgActorActivator::new(pool.clone(), mailbox.clone());
+        let handlers = Arc::new(RwLock::new(HashMap::new()));
+        let activator = PgActorActivator::new(pool.clone(), mailbox.clone(), handlers.clone());
         Self {
             pool,
             mailbox,
             activator,
-            handlers: Arc::new(RwLock::new(HashMap::new())),
+            handlers,
             scheduler_config,
         }
     }
@@ -70,7 +71,7 @@ impl ActorSystem {
             let handlers = self.handlers.read().unwrap();
             handlers
                 .get(actor_type)
-                .map(|h| h.initial_state())
+                .map(|h| h.initial_state_for(&handle))
                 .unwrap_or_default()
         };
 
@@ -97,23 +98,42 @@ impl ActorSystem {
         &self,
         namespace: &str,
         actor_type: &str,
-        fields: serde_json::Value,
+        mut fields: serde_json::Value,
     ) -> Result<ActorHandle, ActorError> {
+        if let Some(fields) = fields.as_object_mut() {
+            if let (Some(upper), Some(lower)) = (fields.get("Id"), fields.get("id"))
+                && upper != lower
+            {
+                return Err(ActorError::Rejected(
+                    "creation identity aliases disagree".into(),
+                ));
+            }
+            if let Some(identity) = fields.get("Id").or_else(|| fields.get("id")).cloned() {
+                fields.insert("Id".into(), identity.clone());
+                fields.insert("id".into(), identity);
+            }
+        }
         let handle = ActorHandle::new(namespace, actor_type);
 
         // Build initial state with fields pre-populated.
         let initial_state = {
             let handlers = self.handlers.read().unwrap();
-            let raw = handlers
-                .get(actor_type)
-                .map(|h| h.initial_state())
+            let handler = handlers.get(actor_type);
+            if let Some(handler) = handler {
+                handler.validate_initial_fields(&fields)?;
+            }
+            let raw = handler
+                .map(|handler| handler.initial_state_for(&handle))
                 .unwrap_or_default();
             if fields.is_null() || fields.as_object().is_some_and(|o| o.is_empty()) {
                 raw
             } else {
                 let mut state: crate::spec_actor::SpecActorState =
                     serde_json::from_slice(&raw).unwrap_or_default();
-                state.fields = fields;
+                match (state.fields.as_object_mut(), fields.as_object()) {
+                    (Some(existing), Some(incoming)) => existing.extend(incoming.clone()),
+                    _ => state.fields = fields,
+                }
                 serde_json::to_vec(&state).unwrap_or(raw)
             }
         };
@@ -212,6 +232,7 @@ impl ActorSystem {
     pub async fn spawn_all_registered(&self, namespace: &str) -> Result<(), ActorError> {
         let actor_types: Vec<String> = { self.handlers.read().unwrap().keys().cloned().collect() };
         for actor_type in &actor_types {
+            let handle = ActorHandle::new(namespace, actor_type);
             // ON CONFLICT DO NOTHING — idempotent.
             let client = self
                 .pool
@@ -222,7 +243,7 @@ impl ActorSystem {
                 let handlers = self.handlers.read().unwrap();
                 handlers
                     .get(actor_type.as_str())
-                    .map(|h| h.initial_state())
+                    .map(|h| h.initial_state_for(&handle))
                     .unwrap_or_default()
             };
             client
@@ -250,51 +271,24 @@ impl ActorSystem {
         self.handlers.read().unwrap().contains_key(actor_type)
     }
 
-    /// Directly update the `fields` of an actor's state in PG (bypass state machine).
-    /// Used for PATCH operations — merges or replaces fields without triggering a transition.
-    pub async fn update_actor_fields(
-        &self,
-        handle: &ActorHandle,
-        fields: serde_json::Value,
-        replace: bool,
-    ) -> Result<(), ActorError> {
-        let mut state = self.get_spec_actor_state(handle).await.unwrap_or_default();
-        if replace {
-            state.fields = fields;
-        } else {
-            // Merge: new fields overwrite existing keys, others kept.
-            if let (Some(existing), Some(new)) = (state.fields.as_object_mut(), fields.as_object())
-            {
-                for (k, v) in new {
-                    existing.insert(k.clone(), v.clone());
-                }
-            } else {
-                state.fields = fields;
-            }
-        }
-        let state_bytes = serde_json::to_vec(&state)
-            .map_err(|e| ActorError::Internal(format!("serialize: {e}")))?;
-        let client = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| ActorError::Internal(format!("pool: {e}")))?;
-        client
-            .execute(
-                "UPDATE odp_temper.actor_instances SET state = $1 WHERE namespace = $2 AND actor_type = $3",
-                &[&state_bytes, &handle.namespace, &handle.actor_type],
-            )
-            .await
-            .map_err(|e| ActorError::Internal(format!("update fields: {e}")))?;
-        Ok(())
-    }
-
     /// Load actor state bytes. Returns None if actor instance doesn't exist.
     pub async fn load_state(
         &self,
         namespace: &str,
         actor_type: &str,
     ) -> Result<Option<Vec<u8>>, ActorError> {
+        Ok(self
+            .load_state_with_version(namespace, actor_type)
+            .await?
+            .map(|(state, _)| state))
+    }
+
+    /// Read state and its authorization version from the same PostgreSQL row.
+    pub async fn load_state_with_version(
+        &self,
+        namespace: &str,
+        actor_type: &str,
+    ) -> Result<Option<(Vec<u8>, i64)>, ActorError> {
         let client = self
             .pool
             .get()
@@ -306,7 +300,9 @@ impl ActorSystem {
             .await
             .map_err(|e| ActorError::Internal(format!("load state: {e}")))?;
 
-        Ok(rows.first().map(|row| row.get::<_, Vec<u8>>("state")))
+        Ok(rows
+            .first()
+            .map(|row| (row.get("state"), row.get("version"))))
     }
 
     /// Load and deserialize spec actor state. Returns None if not found.

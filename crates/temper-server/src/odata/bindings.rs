@@ -119,18 +119,14 @@ pub(super) async fn dispatch_bound_action(
             return odata_error(StatusCode::INTERNAL_SERVER_ERROR, code, &e).into_response();
         }
     };
-    let expected_authorization_precondition =
-        crate::entity_actor::effects::entity_authorization_precondition(
-            &authz_snapshot.current_state.state,
-        );
-    let current_state = authz_snapshot.current_state;
-    let resource_attrs = authz_snapshot.resource_attrs;
+    let current_state = &authz_snapshot.current_state;
+    let resource_attrs = &authz_snapshot.resource_attrs;
 
     let authz_result = state.authorize_with_context(
         security_ctx,
         action,
         entity_type,
-        &resource_attrs,
+        resource_attrs,
         tenant.as_str(),
     );
     if let Err(denial) = authz_result {
@@ -144,7 +140,7 @@ pub(super) async fn dispatch_bound_action(
                 action,
                 resource_type: entity_type,
                 resource_id: key_str,
-                resource_attrs: serde_json::to_value(&resource_attrs).unwrap_or_default(),
+                resource_attrs: serde_json::to_value(resource_attrs).unwrap_or_default(),
                 reason: &reason,
                 module_name: None,
                 from_status: Some(current_state.state.status.clone()),
@@ -167,6 +163,13 @@ pub(super) async fn dispatch_bound_action(
             &reason_with_id,
         )
         .into_response();
+    }
+
+    if let Err(error) = state.check_verification_gate(tenant, entity_type) {
+        http_span.set_status(Status::error("VerificationRequired"));
+        http_span.set_attribute(OtelKeyValue::new("http.status_code", 423i64));
+        http_span.end_with_timestamp(sim_now().into());
+        return super::common::verification_gate_response(error);
     }
 
     if let Err(resp) = enforce_commons_account_verified_for_action(
@@ -219,6 +222,50 @@ pub(super) async fn dispatch_bound_action(
         http_span.end_with_timestamp(end_time);
         return resp;
     }
+
+    if !authz_snapshot.exists {
+        let validation = state
+            .transition_table_for_dispatch(tenant, entity_type)
+            .map_err(|error| error.to_string())
+            .and_then(|table| {
+                table.validate_action_params(
+                    action.rsplit('.').next().unwrap_or(action),
+                    &body_json,
+                    &current_state.state.fields,
+                    &current_state.state.counters,
+                    &current_state.state.booleans,
+                )
+            });
+        if let Err(error) = validation {
+            http_span.set_status(Status::error("StrictActionContract"));
+            http_span.set_attribute(OtelKeyValue::new("http.status_code", 409i64));
+            http_span.end_with_timestamp(sim_now().into());
+            return odata_error(StatusCode::CONFLICT, "StrictActionContract", &error)
+                .into_response();
+        }
+    }
+
+    let snapshot = match state
+        .materialize_authorized_snapshot(tenant, entity_type, key_str, authz_snapshot)
+        .await
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return odata_error(
+                if matches!(error, DispatchError::Conflict(_)) {
+                    StatusCode::CONFLICT
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                },
+                "AuthorizationStateChanged",
+                &error.to_string(),
+            )
+            .into_response();
+        }
+    };
+    let current_state = snapshot.current_state;
+    let expected_authorization_precondition =
+        crate::entity_actor::effects::entity_authorization_precondition(&current_state.state);
 
     // Idempotency cache check
     let actor_key = idempotency_actor_key(tenant, entity_type, key_str);

@@ -5,22 +5,12 @@ pub(super) fn synthetic_initial_state(
     entity_id: &str,
     table: &TransitionTable,
 ) -> EntityState {
-    EntityState {
-        entity_type: entity_type.to_string(),
-        entity_id: entity_id.to_string(),
-        status: table.initial_state.clone(),
-        item_count: 0,
-        counters: BTreeMap::new(),
-        booleans: BTreeMap::new(),
-        lists: BTreeMap::new(),
-        fields: serde_json::json!({ "Id": entity_id }),
-        events: Default::default(),
-        total_event_count: 0,
-        events_since_snapshot: 0,
-        last_snapshot_sequence_nr: 0,
-        sequence_nr: 0,
-        processed_idempotency_keys: BTreeMap::new(),
-    }
+    crate::entity_actor::EntityActor::build_initial_state(
+        entity_type,
+        entity_id,
+        table,
+        &serde_json::json!({}),
+    )
 }
 
 pub(super) fn has_sub_writes(params: &Value) -> bool {
@@ -248,27 +238,28 @@ pub(super) fn composite_create_resource_attrs_from_defaults(
     defaults: &CompositeCreateAuthDefaults,
 ) -> BTreeMap<String, Value> {
     let mut resource_attrs = BTreeMap::new();
-    resource_attrs.insert("id".to_string(), Value::String(entity_id.to_string()));
-    resource_attrs.insert(
-        "status".to_string(),
-        Value::String(defaults.initial_state.clone()),
-    );
     if let Value::Object(fields) = params {
         for (key, value) in fields {
             resource_attrs.insert(key.clone(), value.clone());
         }
     }
+    for name in ["id", "Id"] {
+        resource_attrs.insert(name.into(), Value::String(entity_id.into()));
+    }
+    for name in ["status", "Status"] {
+        resource_attrs.insert(name.into(), Value::String(defaults.initial_state.clone()));
+    }
     resource_attrs.insert("has_spec".to_string(), Value::Bool(defaults.has_spec));
     resource_attrs
 }
 
-pub(super) fn normalize_sub_write_params(sub_write: CompositeSubWrite) -> Value {
+pub(super) fn normalize_sub_write_params(sub_write: CompositeSubWrite, strict: bool) -> Value {
     let mut params = if sub_write.params.is_null() {
         Value::Object(Default::default())
     } else {
         sub_write.params
     };
-    if let Some(obj) = params.as_object_mut() {
+    if !strict && let Some(obj) = params.as_object_mut() {
         obj.entry("Id".to_string())
             .or_insert(Value::String(sub_write.entity_id));
     }
@@ -339,8 +330,9 @@ pub(super) fn composite_event_envelope(
 pub(super) fn composite_envelope(
     persistence_id: &str,
     event: &crate::entity_actor::EntityEvent,
+    initial: &EntityState,
 ) -> Result<PersistenceEnvelope, DispatchError> {
-    let payload = serde_json::to_value(event).map_err(|e| {
+    let payload = crate::entity_actor::bootstrap::event_payload(event, initial).map_err(|e| {
         DispatchError::Internal(format!("failed to serialize composite event: {e}"))
     })?;
     Ok(PersistenceEnvelope {

@@ -3656,8 +3656,6 @@ dependencies = [
 [[package]]
 name = "libsql"
 version = "0.9.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2329faffc510cc3c6b4f00169a39177cc7099d3ed7647fc92f7cf26e53a8d976"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -6777,6 +6775,7 @@ dependencies = [
  "opentelemetry",
  "serde",
  "serde_json",
+ "stacker",
  "temper-runtime",
  "thiserror 2.0.18",
  "uuid",
@@ -7060,6 +7059,7 @@ dependencies = [
  "cedar-policy",
  "chrono",
  "criterion",
+ "deadpool-postgres",
  "ed25519-dalek",
  "futures-util",
  "hmac 0.12.1",
@@ -7076,6 +7076,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "sqlx",
+ "stacker",
  "temper-actor-runtime",
  "temper-authz",
  "temper-evolution",
@@ -7095,8 +7096,11 @@ dependencies = [
  "temper-verify",
  "temper-wasm",
  "tempfile",
+ "testcontainers",
+ "testcontainers-modules",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-postgres",
  "tokio-stream",
  "tokio-test",
  "tokio-tungstenite",

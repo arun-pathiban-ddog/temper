@@ -20,7 +20,9 @@ pub(super) fn parse_string_array(value: &str) -> Vec<String> {
     vec![trimmed.trim_matches('"').trim_matches('\'').to_string()]
 }
 
-pub(super) fn parse_action_params(value: &str) -> Vec<super::super::types::ActionParam> {
+pub(super) fn parse_action_params(
+    value: &str,
+) -> Result<Vec<super::super::types::ActionParam>, super::AutomatonParseError> {
     let trimmed = value.trim();
     if trimmed.contains('{') {
         let toml_str = format!("params = {trimmed}");
@@ -28,14 +30,18 @@ pub(super) fn parse_action_params(value: &str) -> Vec<super::super::types::Actio
         struct Wrapper {
             params: Vec<super::super::types::ActionParam>,
         }
-        if let Ok(w) = toml::from_str::<Wrapper>(&toml_str) {
-            return w.params;
-        }
+        return toml::from_str::<Wrapper>(&toml_str)
+            .map(|wrapper| wrapper.params)
+            .map_err(|error| {
+                super::AutomatonParseError::Validation(format!(
+                    "invalid typed action parameters: {error}"
+                ))
+            });
     }
-    parse_string_array(trimmed)
+    Ok(parse_string_array(trimmed)
         .into_iter()
         .map(super::super::types::ActionParam::Named)
-        .collect()
+        .collect())
 }
 
 pub(super) fn split_inline_tables(s: &str) -> Vec<&str> {
