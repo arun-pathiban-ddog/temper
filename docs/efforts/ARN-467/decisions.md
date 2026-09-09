@@ -554,3 +554,16 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Where:** crates/temper-spec/src/automaton/contracts.rs; toml_parser/inline.rs and mod.rs; crates/temper-actor-runtime/src/spec_actor.rs and tests/spec_actor_strict/typed.rs.
 
 **Review dispositions:** Grok's single-table and non-string typed-shape examples reproduce the fallback. Its trailing-comma example was already refused by a later strict TOML metadata parse. Ordinary from_ioa already reports the first parse error; the constructor panic requires inconsistent inputs or changed parsing conditions and is not necessarily a process abort. The final Grok output reports divergence and is not a passing review. D31's native-actor DST exception, five findings and ARN-179 remain unchanged.
+
+
+## D44 — Qualify the official Turso engine for dependency cleanup
+
+**Decision:** Replace the maintained libSQL patch with current official Turso packages, subject to preserving the existing storage contract.
+
+**Came up because:** Rita rejected both vendored libSQL and a separate fork and explicitly selected the newer Turso tooling.
+
+**Options:** Keep the vendor patch; move the patch to a fork; restore the known failing package; qualify current official Turso packages.
+
+**Chose current Turso over a maintained libSQL patch because:** It keeps database implementation maintenance upstream. Qualification must preserve existing data and local/remote behavior; an engine incompatibility will be reported without starting another upstream repair project.
+
+**Where:** ADR-0176; crates/temper-store-turso; codex/arn467-turso-engine.
