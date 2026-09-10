@@ -192,6 +192,16 @@ async fn read_overflow_base64_bounded(
     expected_bytes: Option<u64>,
     max_bytes: u64,
 ) -> Result<Vec<u8>, String> {
+    // The streaming decoder asserts an exact decoded length, which only exists
+    // when the model declared a Size (blobs). For trees, commits and tags there
+    // is none to assert -- and base64 padding makes it impossible to derive
+    // exactly from the encoded length -- so read those buffered and let
+    // `git_object_body` do the integrity check on the git header. Bounded by
+    // `max_bytes` either way, and these objects are small by construction.
+    if expected_bytes.is_none() {
+        return read_overflow_base64_buffered(state, tenant, descriptor, max_bytes).await;
+    }
+
     if let Some(expected) = expected_bytes {
         if expected > max_bytes {
             return Err(format!(
@@ -450,4 +460,87 @@ async fn write_overflow_base64(
             .map_err(|error| format!("write staged Genesis file: {error}"))?;
     }
     Ok(written)
+}
+
+
+/// Read an overflowed field whose decoded length the model does not declare.
+///
+/// Uses the bounded stream and collects it, rather than the JSON-base64 stream
+/// decoder, because that decoder asserts an exact decoded length and there is
+/// none to assert here.
+async fn read_overflow_base64_buffered(
+    state: &ServerState,
+    tenant: &TenantId,
+    descriptor: temper_server::blobs::FieldOverflowDescriptor<'_>,
+    max_bytes: u64,
+) -> Result<Vec<u8>, String> {
+    let encoded = match state
+        .stream_blob_object(tenant, descriptor.key, descriptor.serialized_bytes)
+        .await?
+    {
+        temper_server::blob_store::BlobStreamRead::Found(stream) => stream,
+        temper_server::blob_store::BlobStreamRead::Missing => {
+            return Err(format!(
+                "Genesis field overflow blob {} not found",
+                descriptor.key
+            ));
+        }
+        temper_server::blob_store::BlobStreamRead::TooLarge { .. } => {
+            return Err(format!(
+                "Genesis field overflow blob {} exceeds its descriptor",
+                descriptor.key
+            ));
+        }
+    };
+    let encoded = encoded.verify_sha256(descriptor.sha256);
+    let mut stream = encoded.into_stream();
+    let mut raw = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            format!(
+                "read Genesis field overflow blob {}: {error}",
+                descriptor.key
+            )
+        })?;
+        if raw.len().saturating_add(chunk.len()) as u64 > max_bytes.saturating_mul(2) {
+            return Err(format!(
+                "Genesis field overflow blob {} exceeded its encoded budget",
+                descriptor.key
+            ));
+        }
+        raw.extend_from_slice(&chunk);
+    }
+    let text = std::str::from_utf8(&raw)
+        .map_err(|error| {
+            format!(
+                "Genesis overflow blob {} is not UTF-8: {error}",
+                descriptor.key
+            )
+        })?
+        .trim();
+    let body = text
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .ok_or_else(|| format!("Genesis overflow blob {} is not a JSON string", descriptor.key))?;
+    let decoded = base64_decode_standard(body).map_err(|error| {
+        format!(
+            "decode Genesis field overflow blob {}: {error}",
+            descriptor.key
+        )
+    })?;
+    if decoded.len() as u64 > max_bytes {
+        return Err(format!(
+            "decoded Genesis field overflow blob {} is {} bytes; budget is {max_bytes}",
+            descriptor.key,
+            decoded.len()
+        ));
+    }
+    Ok(decoded)
+}
+
+fn base64_decode_standard(encoded: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded.as_bytes())
+        .map_err(|error| error.to_string())
 }

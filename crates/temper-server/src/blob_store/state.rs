@@ -132,9 +132,11 @@ impl ServerState {
 
     /// Open a tenant-scoped object-store blob as a bounded stream.
     ///
-    /// Large field-overflow objects are never read from the legacy database
-    /// fallback because that interface is buffered; callers receive `Missing`
-    /// and can retain the media descriptor instead.
+    /// Objects within the caller's ceiling fall back to the legacy database
+    /// store when the object store does not have them, so this agrees with
+    /// [`Self::get_blob_with_legacy_fallback`] about what exists. Anything above
+    /// the ceiling is still refused there rather than buffered, which is why
+    /// the fallback asks the store to bound the read instead of reading first.
     pub async fn stream_blob_object(
         &self,
         tenant: &TenantId,
@@ -177,20 +179,20 @@ impl ServerState {
         let Some(store) = self.metadata_store_for_tenant(tenant.as_str()).await else {
             return Ok(super::BlobStreamRead::Missing);
         };
+        // Bound before materializing. The legacy interface is buffered, which is
+        // why streaming reads skipped it originally; asking the store to refuse
+        // anything over the caller's ceiling keeps that intent — the fallback
+        // never pulls a large object into memory, it just stops pretending
+        // small ones do not exist.
+        let ceiling = usize::try_from(max_bytes).unwrap_or(usize::MAX);
         let Some(bytes) = store
-            .get_blob(key)
+            .get_blob_if_size_at_most(key, ceiling)
             .await
             .map_err(|error| format!("legacy DB blob read failed for '{key}': {error}"))?
         else {
             return Ok(super::BlobStreamRead::Missing);
         };
-        let actual = bytes.len() as u64;
-        if actual > max_bytes {
-            return Ok(super::BlobStreamRead::TooLarge {
-                actual_bytes: Some(actual),
-            });
-        }
-        tracing::debug!(%key, bytes = actual, "served blob from the legacy DB store");
+        tracing::debug!(%key, bytes = bytes.len(), "served blob from the legacy DB store");
         Ok(super::BlobStreamRead::Found(
             super::BlobObjectStream::from_bytes(bytes),
         ))
