@@ -69,6 +69,14 @@ pub fn is_public_kernel_request(method: &Method, path: &str) -> bool {
     }
     (matches!(*method, Method::GET | Method::POST) && path.starts_with("/webhooks/"))
         || (method == Method::GET && path.starts_with("/genesis/"))
+        // A pinned Genesis app bundle is the same content the git surface
+        // already serves anonymously. The handler still refuses unless the
+        // backing repository is public; reaching it is what this allows, so an
+        // installing kernel that holds no registry credential can fetch a
+        // public app instead of being turned away at the edge.
+        || (method == Method::GET
+            && path.starts_with("/api/genesis/apps/")
+            && path.ends_with("/bundle"))
 }
 
 /// Reject protected kernel routes that lack authenticated typed authority.
