@@ -39,6 +39,29 @@ use boxed::{handle_wasm_failure_boxed, invoke_and_handle_result_boxed};
 use local_tdata_host::LocalTDataWasmHost;
 
 /// Build a request-bound internal HTTP capability issuer for a non-System caller.
+/// Principal id the edge assigns to an unauthenticated caller.
+pub(crate) const ANONYMOUS_PRINCIPAL_ID: &str = "anonymous";
+
+/// The identity a WASM module acts under when it has no caller to act for.
+///
+/// Mirrors the principal the Cedar WASM gate already evaluates
+/// (`build_wasm_security_context`), so a module is the same entity whether it is
+/// being gated or making an internal call.
+fn wasm_module_security_context(module_name: &str) -> SecurityContext {
+    SecurityContext {
+        principal: temper_authz::Principal {
+            id: module_name.to_string(),
+            kind: PrincipalKind::Agent,
+            role: Some("wasm_module".to_string()),
+            acting_for: None,
+            agent_type: None,
+            attributes: std::collections::HashMap::new(), // determinism-ok: Principal uses HashMap
+        },
+        context_attrs: std::collections::HashMap::new(), // determinism-ok: SecurityContext uses HashMap
+        correlation_id: uuid::Uuid::now_v7().to_string(), // determinism-ok: correlation only
+    }
+}
+
 pub(crate) fn internal_http_capability_issuer(
     state: &crate::state::ServerState,
     tenant: &TenantId,
@@ -90,7 +113,30 @@ pub(crate) fn authorized_http_endpoint_host(
     );
     let secret_resolver =
         state.authorized_wasm_secret_resolver(tenant, Arc::clone(&gate), authz_context.clone());
-    let capability_issuer = internal_http_capability_issuer(state, tenant, Some(security_context))
+    // Authentication cannot run as the caller it is about to authenticate.
+    //
+    // An inbound git or REST request arrives anonymous — the kernel has no way
+    // to know who it is until the guest resolves the presented GitToken, and
+    // resolving it means reading a row. Binding the guest's internal capability
+    // to the anonymous caller makes that read run as anonymous, Cedar denies it,
+    // the lookup returns nothing, and every authenticated caller silently
+    // degrades to anonymous — which is exactly the failure `git_token.cedar`
+    // warns about, and why pushes answer 401 with a valid token.
+    //
+    // The app's policy expects these lookups to happen under the module's own
+    // identity. That used to be asserted with `X-Temper-Principal-Kind` headers,
+    // which the kernel now strips on purpose (ARN-208/255) and never replaced.
+    // Supply it here instead: when — and only when — the caller is anonymous,
+    // the guest acts as itself, a named module, and the tenant's Cedar policy
+    // decides what a module may read. No caller credential is forwarded.
+    let module_identity;
+    let capability_context = if security_context.principal.id == ANONYMOUS_PRINCIPAL_ID {
+        module_identity = wasm_module_security_context(module_name);
+        &module_identity
+    } else {
+        security_context
+    };
+    let capability_issuer = internal_http_capability_issuer(state, tenant, Some(capability_context))
         .ok_or_else(|| "HttpEndpoint caller authority cannot be delegated".to_string())?;
     let internal_api_url = internal_api_base_url(state);
     let local_blob_interceptor = local_blob_binary_interceptor(
