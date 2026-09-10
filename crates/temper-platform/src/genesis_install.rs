@@ -2077,6 +2077,14 @@ async fn load_genesis_object_by_key(
         .ensure_entity_loaded(tenant, entity_type, entity_id)
         .await
     {
+        // ARN-467 diagnostic: see the note below. This is the other way the
+        // lookup can silently produce "not found".
+        tracing::warn!(
+            %entity_type,
+            %entity_id,
+            tenant = %tenant,
+            "Genesis object entity could not be loaded"
+        );
         return Ok(None);
     }
     let found = state
@@ -2089,6 +2097,20 @@ async fn load_genesis_object_by_key(
     if object_repo == repository_id && object_sha == git_sha {
         Ok(Some(found))
     } else {
+        // ARN-467 diagnostic: the bundle endpoint answered 404 for commits whose
+        // rows read back correctly over OData, and it did so with no log line at
+        // all, so the mismatch could not be seen from outside. Report exactly
+        // what was compared.
+        tracing::warn!(
+            %entity_type,
+            %entity_id,
+            wanted_repository = %repository_id,
+            found_repository = %object_repo,
+            wanted_sha = %git_sha,
+            found_sha = %object_sha,
+            field_keys = ?fields.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()),
+            "Genesis object key resolved but did not match the requested object"
+        );
         Ok(None)
     }
 }
