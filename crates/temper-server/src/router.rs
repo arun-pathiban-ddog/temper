@@ -274,10 +274,13 @@ pub(crate) fn is_credential_header(name: &str) -> bool {
 /// the query string (deliberately — git needs `service=`), so a credential passed as
 /// `?access_token=…` is a different carrier of the same invariant; tracked with the
 /// outbound mirror in ARN-346 (ARN-208).
-pub(crate) fn guest_visible_headers(headers: &HeaderMap) -> Vec<(String, String)> {
+pub(crate) fn guest_visible_headers(
+    headers: &HeaderMap,
+    forwards_credential: bool,
+) -> Vec<(String, String)> {
     headers
         .iter()
-        .filter(|(name, _)| !is_credential_header(name.as_str()))
+        .filter(|(name, _)| forwards_credential || !is_credential_header(name.as_str()))
         .filter_map(|(k, v)| {
             v.to_str()
                 .ok()
@@ -372,7 +375,8 @@ async fn dispatch_matched_route(
     // Build the invocation context. Guest-visible headers go through
     // `guest_visible_headers` so caller credentials are stripped in one audited
     // place (ARN-208).
-    let header_pairs: Vec<(String, String)> = guest_visible_headers(&headers);
+    let header_pairs: Vec<(String, String)> =
+        guest_visible_headers(&headers, route.route.forwards_credential);
     let route_params = git_route_params_for_http_dispatch(
         &route.route.integration_module,
         uri.path(),

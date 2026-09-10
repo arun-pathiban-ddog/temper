@@ -50,6 +50,16 @@ pub struct HttpEndpointRoute {
     pub integration_module: String,
     /// If true, the kernel resolves a Principal before dispatch.
     pub requires_auth: bool,
+    /// If true, the inbound `Authorization` header is visible to the guest.
+    ///
+    /// Off by default, and the default is the invariant: a caller credential
+    /// must never reach a WASM guest (ARN-208). An endpoint opts in only when
+    /// the protocol it implements carries its own credential that the kernel
+    /// cannot interpret — git smart-HTTP presents a GitToken as HTTP Basic,
+    /// which is meaningless to the kernel and is the app's to resolve. Stripping
+    /// it there does not protect anything: it removes the only thing the guest
+    /// can authenticate with, and every push fails as anonymous.
+    pub forwards_credential: bool,
     /// Hard cap on invocation wall time (seconds).
     pub timeout_secs: u32,
     /// Optional instruction budget for the endpoint adapter.
@@ -383,6 +393,28 @@ pub fn route_from_entity_fields(id: &str, fields: &serde_json::Value) -> Option<
         .get("RequiresAuth")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
+    // An endpoint sees a credential only when it says so. The default for the
+    // protocol handlers below is `true` because the credential they receive is
+    // not a caller credential the kernel could act on: git smart-HTTP and the
+    // GitHub-compatible REST surface present a GitToken as HTTP Basic, which is
+    // opaque to the kernel and is the app's to resolve. Withholding it protects
+    // nothing and makes every authenticated request arrive as anonymous.
+    //
+    // Same shape as the pack-size defaults below: keyed on the integration that
+    // implements the protocol, and overridable per endpoint.
+    let credential_carrying_protocol = matches!(
+        integration_module.as_str(),
+        "git_refs_advertise"
+            | "git_upload_pack"
+            | "git_receive_pack"
+            | "github_rest_repos"
+            | "github_rest_refs"
+            | "github_rest_pulls"
+    );
+    let forwards_credential = obj
+        .get("ForwardsCredential")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(credential_carrying_protocol);
     let timeout_secs = obj
         .get("TimeoutSecs")
         .and_then(|v| v.as_u64())
@@ -410,6 +442,7 @@ pub fn route_from_entity_fields(id: &str, fields: &serde_json::Value) -> Option<
         methods,
         integration_module,
         requires_auth,
+        forwards_credential,
         timeout_secs: timeout_secs.min(u32::MAX as u64) as u32,
         max_fuel,
         max_memory,
@@ -542,6 +575,7 @@ mod tests {
             methods: methods.iter().map(|m| m.to_uppercase()).collect(),
             integration_module: integration_module.to_string(),
             requires_auth: false,
+            forwards_credential: false,
             timeout_secs: 60,
             max_fuel: None,
             max_memory: None,

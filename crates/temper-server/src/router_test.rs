@@ -2583,7 +2583,7 @@ fn credential_headers_are_not_forwarded_to_wasm_guests() {
         "a credential header was added or removed — plant it in this test too"
     );
 
-    let visible = guest_visible_headers(&headers);
+    let visible = guest_visible_headers(&headers, false);
     let names: Vec<String> = visible
         .iter()
         .map(|(k, _)| k.to_ascii_lowercase())
@@ -2630,6 +2630,46 @@ fn credential_headers_are_not_forwarded_to_wasm_guests() {
             "{expected} is not a credential and must still be forwarded; got {names:?}"
         );
     }
+}
+
+#[test]
+fn credential_forwarding_is_off_by_default_and_explicit_when_on() {
+    // ARN-208's invariant is the default: a caller credential must not reach a
+    // guest. Git smart-HTTP is the exception, because the GitToken it presents
+    // as HTTP Basic is meaningless to the kernel and is the app's to resolve --
+    // stripping it there does not protect anything, it just makes every push
+    // authenticate as anonymous.
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::AUTHORIZATION,
+        axum::http::HeaderValue::from_static("Basic cGF3Z190b2tlbjo="),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/x-git-receive-pack-request"),
+    );
+
+    let stripped = guest_visible_headers(&headers, false);
+    assert!(
+        !stripped
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("authorization")),
+        "an endpoint that has not opted in must never see a credential; got {stripped:?}"
+    );
+    assert!(
+        stripped
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("content-type")),
+        "ordinary headers still reach the guest"
+    );
+
+    let forwarded = guest_visible_headers(&headers, true);
+    assert!(
+        forwarded
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("authorization")),
+        "an endpoint that opted in must see the credential it is expected to resolve"
+    );
 }
 
 #[test]
