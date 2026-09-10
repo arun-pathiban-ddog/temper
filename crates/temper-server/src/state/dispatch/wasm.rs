@@ -172,10 +172,16 @@ pub(crate) fn authorized_http_endpoint_host(
     }
 
     let production_host: Arc<dyn WasmHost> = Arc::new(base_host);
+    // The same identity on both paths, or the guest gets different answers
+    // depending on which one a call happens to take. `/tdata` reads are served
+    // in-process here; anything else is minted a capability above. Binding this
+    // one to the caller while the other carries the module was the reason the
+    // first attempt at this fix changed nothing: the GitToken lookup is a
+    // `/tdata` read, so it never went near the capability issuer.
     let local_host: Arc<dyn WasmHost> = Arc::new(LocalTDataWasmHost::new(
         state.clone(),
         tenant.clone(),
-        Some(security_context),
+        Some(&module_identity),
         production_host,
     ));
     Ok(Arc::new(AuthorizedWasmHost::new(
