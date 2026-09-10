@@ -308,6 +308,10 @@ pub async fn run(
     // route table on every HttpEndpoint transition. Must run before
     // axum::serve so the first request sees a populated table.
     temper_server::http_endpoint::spawn_reconciler(state.server.clone());
+    // Installs an approved Policy's cedar_statement when the entity reaches
+    // Active. Without it `Policy.Activate` emits an event nobody consumes and
+    // the governed path grants nothing (ARN-494).
+    temper_platform::policy_activation::spawn_policy_activation_reconciler(state.clone());
 
     // Prime the route tables for all existing tenants so
     // HttpEndpoint rows already in the event store are routable on

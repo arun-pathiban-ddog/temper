@@ -6,6 +6,7 @@
 //! - **OData API**: All entities (system and user) are accessible via the
 //!   Temper Data API (`/tdata`), following OData v4 standard.
 
+pub mod policy_activation;
 pub mod bearer_auth;
 pub mod bootstrap;
 pub mod deploy;
