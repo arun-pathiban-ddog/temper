@@ -2093,24 +2093,22 @@ async fn load_genesis_object_by_key(
         .map_err(|e| format!("read Genesis {entity_type} {entity_id}: {e}"))?;
     let fields = &found.state.fields;
     let object_repo = string_field(fields, "RepositoryId").unwrap_or_default();
-    let object_sha = string_field(fields, "Id").unwrap_or_default();
 
-    // `Id` carries one of two things depending on how the row was read. The
-    // OData projection returns the domain field — the bare git sha — but an
-    // entity hydrated through its actor reports the *entity id* under the same
-    // key, and for git objects that is the composite `{repo}-{sha}`. The state
-    // this function sees is the actor's, so a bare-sha comparison alone rejects
-    // every intact row: the bundle endpoint answered
-    // `Genesis commit <sha> not found for <repo>` for commits that read back
-    // perfectly over `/tdata`, which blocked every install through Genesis.
+    // Deliberately not comparing a git sha against `fields["Id"]`.
     //
-    // Accepting the entity id is not a weakening. `entity_id` is derived from
-    // the requested (repository_id, git_sha) by the caller, so a row sitting at
-    // that key whose `RepositoryId` also matches *is* the requested object; the
-    // guard still rejects a different object occupying the key.
-    let identifies_requested_object = object_sha == git_sha || object_sha == entity_id;
-
-    if object_repo == repository_id && identifies_requested_object {
+    // `Id` / `id` / `Status` / `status` are server-derived names
+    // (`temper_spec::automaton::is_server_derived_field_name`): the actor
+    // overwrites them with the entity id and the state-machine state on every
+    // hydrate, so `fields["Id"]` here is always the *entity id*, never the git
+    // sha the caller asked for. Comparing the two rejected every intact row and
+    // made the bundle endpoint answer "commit not found" for commits that read
+    // back perfectly, which blocked every install through Genesis.
+    //
+    // The sha needs no separate check. `entity_id` is derived from
+    // (repository_id, git_sha) by `genesis_object_entity_id`, so having loaded
+    // the row at that key, the only fact left to confirm is that the row really
+    // belongs to the requested repository.
+    if object_repo == repository_id {
         Ok(Some(found))
     } else {
         // Both ways this function returns "not found" used to be silent, which
@@ -2120,10 +2118,8 @@ async fn load_genesis_object_by_key(
             %entity_id,
             wanted_repository = %repository_id,
             found_repository = %object_repo,
-            wanted_sha = %git_sha,
-            found_sha = %object_sha,
-            field_keys = ?fields.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()),
-            "Genesis object key resolved but did not match the requested object"
+            requested_sha = %git_sha,
+            "Genesis object key resolved but the row belongs to another repository"
         );
         Ok(None)
     }
