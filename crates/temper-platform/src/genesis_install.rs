@@ -2077,8 +2077,8 @@ async fn load_genesis_object_by_key(
         .ensure_entity_loaded(tenant, entity_type, entity_id)
         .await
     {
-        // ARN-467 diagnostic: see the note below. This is the other way the
-        // lookup can silently produce "not found".
+        // The other silent path to "not found": the entity could not be
+        // hydrated at all. Logged for the same reason as the mismatch below.
         tracing::warn!(
             %entity_type,
             %entity_id,
@@ -2094,13 +2094,27 @@ async fn load_genesis_object_by_key(
     let fields = &found.state.fields;
     let object_repo = string_field(fields, "RepositoryId").unwrap_or_default();
     let object_sha = string_field(fields, "Id").unwrap_or_default();
-    if object_repo == repository_id && object_sha == git_sha {
+
+    // `Id` carries one of two things depending on how the row was read. The
+    // OData projection returns the domain field — the bare git sha — but an
+    // entity hydrated through its actor reports the *entity id* under the same
+    // key, and for git objects that is the composite `{repo}-{sha}`. The state
+    // this function sees is the actor's, so a bare-sha comparison alone rejects
+    // every intact row: the bundle endpoint answered
+    // `Genesis commit <sha> not found for <repo>` for commits that read back
+    // perfectly over `/tdata`, which blocked every install through Genesis.
+    //
+    // Accepting the entity id is not a weakening. `entity_id` is derived from
+    // the requested (repository_id, git_sha) by the caller, so a row sitting at
+    // that key whose `RepositoryId` also matches *is* the requested object; the
+    // guard still rejects a different object occupying the key.
+    let identifies_requested_object = object_sha == git_sha || object_sha == entity_id;
+
+    if object_repo == repository_id && identifies_requested_object {
         Ok(Some(found))
     } else {
-        // ARN-467 diagnostic: the bundle endpoint answered 404 for commits whose
-        // rows read back correctly over OData, and it did so with no log line at
-        // all, so the mismatch could not be seen from outside. Report exactly
-        // what was compared.
+        // Both ways this function returns "not found" used to be silent, which
+        // is why a 404 here gave nothing to work from. Say what was compared.
         tracing::warn!(
             %entity_type,
             %entity_id,
