@@ -15,6 +15,9 @@ use crate::http::{
     temper_request_bytes,
 };
 
+#[path = "file_text.rs"]
+mod file_text;
+
 /// Shared context for dispatching temper methods.
 pub struct DispatchContext<'a> {
     /// HTTP client.
@@ -83,6 +86,7 @@ pub async fn dispatch_temper_method(
         "list" | "get" | "create" | "action" | "patch" | "navigate" | "get_agent_id" => {
             dispatch_entity(ctx, method, args).await
         }
+        "put_file_text" => file_text::put_file_text(ctx, args).await,
         // --- Spec management ---
         "submit_specs" | "get_policies" => dispatch_specs(ctx, method, args).await,
         // --- Governance ---
@@ -154,11 +158,11 @@ pub async fn dispatch_temper_method(
         "approve_decision" | "deny_decision" | "set_policy" => Err(format!(
             "temper.{method}() is not available to agents. \
              Governance write operations (approve, deny, set_policy) \
-             can only be performed by humans via the Observe UI or `temper decide` CLI."
+             can only be performed by humans via MCP elicitation or `temper decide` CLI."
         )),
         _ => Err(format!(
             "unknown temper method '{method}'. Available: \
-             list, get, create, action, patch, navigate, get_agent_id, \
+             list, get, create, action, patch, navigate, get_agent_id, put_file_text, \
              submit_specs, get_policies, \
              upload_wasm, compile_wasm, \
              get_decisions, get_decision_status, poll_decision, \
@@ -489,6 +493,7 @@ async fn dispatch_wasm(
                 Method::POST,
                 &format!("/api/wasm/modules/{module_name}"),
                 bytes,
+                "application/wasm",
             )
             .await
         }
@@ -721,6 +726,7 @@ temper-wasm-sdk = {{ path = "{sdk_path}" }}
         Method::POST,
         &format!("/api/wasm/modules/{module_name}"),
         wasm_bytes,
+        "application/wasm",
     )
     .await;
 

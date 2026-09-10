@@ -5,10 +5,10 @@
 //! `elicitation` capability at initialize, the server pauses the tool result,
 //! sends an `elicitation/create` request so the HUMAN at the client resolves
 //! the decision, resolves it against the Temper server with the operator
-//! credential (`TEMPER_API_KEY`), and returns the tool result annotated so
+//! credential (`TEMPER_MCP_APPROVER_KEY`, or the caller credential in local dev), and returns the tool result annotated so
 //! the model can retry the action. The model never answers the elicitation —
 //! the client harness renders it to the human; decline, cancel, or timeout
-//! leaves the decision pending and the result unchanged (fail closed).
+//! leaves the decision pending and reports the transport outcome (fail closed).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::runtime::RuntimeContext;
+use crate::elicit_status::{PendingStatus, pending_annotation};
 
 /// Default seconds an elicitation waits for the human before the decision is
 /// left pending. Override with `TEMPER_MCP_ELICIT_TIMEOUT_SECS`.
@@ -341,7 +342,7 @@ async fn resolve_decision(
 /// One elicitation per tool call: the first unique denial is put to the
 /// human; any further pending decision ids are reported in the annotation so
 /// the model can retry and trigger them individually. Decline, cancel,
-/// timeout, or an explicit leave-pending returns the result unchanged — the
+/// timeout, or an explicit leave-pending reports that outcome — the
 /// decision is never resolved without an affirmative human answer, and the
 /// action is never retried from inside the MCP (the model owns the loop).
 pub(crate) async fn apply_denial_elicitation(
@@ -349,12 +350,9 @@ pub(crate) async fn apply_denial_elicitation(
     tool_result: Result<String>,
     denials: Vec<DeniedDecision>,
 ) -> Result<String> {
-    if denials.is_empty() || !ctx.elicitation_available() {
+    if denials.is_empty() {
         return tool_result;
     }
-    let Some(requester) = ctx.requester.clone() else {
-        return tool_result;
-    };
 
     let mut unique: Vec<DeniedDecision> = Vec::new();
     for denial in denials {
@@ -364,6 +362,16 @@ pub(crate) async fn apply_denial_elicitation(
     }
     let denial = unique.remove(0);
     let other_pending: Vec<String> = unique.into_iter().map(|d| d.decision_id).collect();
+    let Some(requester) = ctx
+        .requester
+        .clone()
+        .filter(|_| ctx.elicitation_available())
+    else {
+        return annotate_tool_result(
+            tool_result,
+            pending_annotation(ctx, &denial, &other_pending, PendingStatus::Unavailable),
+        );
+    };
 
     let params = elicitation_params(&denial, ctx.agent_id.as_deref());
     let response = match requester
@@ -371,19 +379,17 @@ pub(crate) async fn apply_denial_elicitation(
         .await
     {
         Ok(response) => response,
-        Err(ClientRequestError::Timeout) => {
-            tracing::warn!(
-                decision_id = %denial.decision_id,
-                "elicitation timed out; decision left pending"
+        Err(error) => {
+            let status = match error {
+                ClientRequestError::Timeout => PendingStatus::Timeout,
+                ClientRequestError::Closed => PendingStatus::ConnectionClosed,
+            };
+            tracing::warn!(decision_id = %denial.decision_id,
+                elicitation_status = status.label(), "human decision remains pending");
+            return annotate_tool_result(
+                tool_result,
+                pending_annotation(ctx, &denial, &other_pending, status),
             );
-            return tool_result;
-        }
-        Err(ClientRequestError::Closed) => {
-            tracing::warn!(
-                decision_id = %denial.decision_id,
-                "elicitation channel closed; decision left pending"
-            );
-            return tool_result;
         }
     };
 
@@ -433,7 +439,17 @@ pub(crate) async fn apply_denial_elicitation(
                 })
             }
         },
-        Some(ElicitChoice::LeavePending) | None => return tool_result,
+        Some(ElicitChoice::LeavePending) => {
+            pending_annotation(ctx, &denial, &other_pending, PendingStatus::LeftPending)
+        }
+        None => {
+            let status = match response.pointer("/result/action").and_then(Value::as_str) {
+                Some("decline") => PendingStatus::Declined,
+                Some("cancel") => PendingStatus::Cancelled,
+                _ => PendingStatus::InvalidResponse,
+            };
+            pending_annotation(ctx, &denial, &other_pending, status)
+        }
     };
 
     if !other_pending.is_empty()

@@ -259,3 +259,43 @@ fn annotate_merges_into_object_and_wraps_scalars() {
     assert!(text.contains("human-elicitation"));
     assert!(text.contains("PD-1"));
 }
+
+#[tokio::test]
+async fn unavailable_elicitation_explains_missing_capability_without_secrets() {
+    let config = crate::McpConfig {
+        temper_url: Some("http://127.0.0.1:1".to_owned()),
+        temper_port: None,
+        agent_id: None,
+        agent_type: None,
+        session_id: None,
+        api_key: Some("private-test-caller".to_owned()),
+    };
+    let mut ctx = RuntimeContext::from_config(&config).expect("context");
+    ctx.approver_key = Some("private-test-approver".to_owned());
+    ctx.elicit_approvals_enabled = true;
+    ctx.client_supports_elicitation = false;
+    let denial = DeniedDecision {
+        tenant: "demo".to_owned(),
+        decision_id: "PD-unavailable".to_owned(),
+        reason: "no matching permit".to_owned(),
+    };
+    let result = apply_denial_elicitation(
+        &ctx,
+        Ok(r#"{"status":"authorization_denied"}"#.to_owned()),
+        vec![denial],
+    )
+    .await
+    .expect("annotated");
+    let parsed: Value = serde_json::from_str(&result).expect("JSON");
+    assert_eq!(parsed["approval"], "pending human decision");
+    assert_eq!(parsed["elicitation_status"], "unavailable");
+    assert_eq!(
+        parsed["elicitation_availability"]["client_supports_elicitation"],
+        false
+    );
+    assert_eq!(
+        parsed["elicitation_availability"]["caller_credential_configured"],
+        true
+    );
+    assert!(!result.contains("private-test"));
+}

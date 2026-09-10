@@ -2,6 +2,7 @@
 
 mod code_analysis;
 mod elicit;
+mod elicit_status;
 mod protocol;
 mod runtime;
 mod trajectory_bounds;
@@ -56,3 +57,6 @@ mod tests;
 #[cfg(test)]
 #[path = "elicit_loop_tests.rs"]
 mod elicit_loop_tests;
+
+#[cfg(test)]
+mod file_text_tests;
