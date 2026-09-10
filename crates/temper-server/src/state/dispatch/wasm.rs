@@ -39,9 +39,6 @@ use boxed::{handle_wasm_failure_boxed, invoke_and_handle_result_boxed};
 use local_tdata_host::LocalTDataWasmHost;
 
 /// Build a request-bound internal HTTP capability issuer for a non-System caller.
-/// Principal id the edge assigns to an unauthenticated caller.
-pub(crate) const ANONYMOUS_PRINCIPAL_ID: &str = "anonymous";
-
 /// The identity a WASM module acts under when it has no caller to act for.
 ///
 /// Mirrors the principal the Cedar WASM gate already evaluates
@@ -113,30 +110,36 @@ pub(crate) fn authorized_http_endpoint_host(
     );
     let secret_resolver =
         state.authorized_wasm_secret_resolver(tenant, Arc::clone(&gate), authz_context.clone());
-    // Authentication cannot run as the caller it is about to authenticate.
+    // A guest's internal calls run as the guest, not as its caller.
     //
-    // An inbound git or REST request arrives anonymous — the kernel has no way
-    // to know who it is until the guest resolves the presented GitToken, and
-    // resolving it means reading a row. Binding the guest's internal capability
-    // to the anonymous caller makes that read run as anonymous, Cedar denies it,
-    // the lookup returns nothing, and every authenticated caller silently
-    // degrades to anonymous — which is exactly the failure `git_token.cedar`
-    // warns about, and why pushes answer 401 with a valid token.
+    // An HttpEndpoint guest is the enforcement point for its own protocol:
+    // Genesis resolves the presented GitToken itself and applies repository
+    // authorization inside the module. It cannot delegate that to the kernel,
+    // because the resolved git principal has no way to reach the kernel — the
+    // headers that used to carry it are stripped on purpose (ARN-208/255).
     //
-    // The app's policy expects these lookups to happen under the module's own
-    // identity. That used to be asserted with `X-Temper-Principal-Kind` headers,
-    // which the kernel now strips on purpose (ARN-208/255) and never replaced.
-    // Supply it here instead: when — and only when — the caller is anonymous,
-    // the guest acts as itself, a named module, and the tenant's Cedar policy
-    // decides what a module may read. No caller credential is forwarded.
-    let module_identity;
-    let capability_context = if security_context.principal.id == ANONYMOUS_PRINCIPAL_ID {
-        module_identity = wasm_module_security_context(module_name);
-        &module_identity
-    } else {
-        security_context
-    };
-    let capability_issuer = internal_http_capability_issuer(state, tenant, Some(capability_context))
+    // Binding the guest's internal capability to the inbound caller broke that
+    // in both directions. An anonymous caller could not read the GitToken row
+    // needed to authenticate it — authentication cannot run as the identity it
+    // is about to establish. And an *authenticated* caller was worse: the same
+    // secret registered as both a GitToken and an AgentCredential meant the edge
+    // authenticated the push, so the lookup ran as that principal, which has no
+    // GitToken read permission either. Every valid token degraded to anonymous
+    // and `git push` answered 401.
+    //
+    // So the guest acts as itself — the same named-module principal the Cedar
+    // WASM gate already evaluates. The tenant's policy decides what each module
+    // may read, and those permits are narrow by construction (Genesis grants its
+    // six wire modules read/list on GitToken and nothing else). No caller
+    // credential is forwarded, which is the property ARN-208 protects.
+    //
+    // Tradeoff, recorded deliberately: a guest no longer inherits its caller's
+    // reach for internal calls. For a protocol guest that is correct, because it
+    // was never enforcing on the caller's behalf. It would be wrong for a guest
+    // that expects the kernel to scope its reads, so this applies to the
+    // HttpEndpoint path only.
+    let module_identity = wasm_module_security_context(module_name);
+    let capability_issuer = internal_http_capability_issuer(state, tenant, Some(&module_identity))
         .ok_or_else(|| "HttpEndpoint caller authority cannot be delegated".to_string())?;
     let internal_api_url = internal_api_base_url(state);
     let local_blob_interceptor = local_blob_binary_interceptor(
