@@ -110,6 +110,9 @@ pub async fn bearer_auth_check(
                 .with_session_id(session_id);
 
         req.extensions_mut().insert(authenticated);
+        let forwards_credential = matched_endpoint
+            .as_ref()
+            .is_some_and(|matched| matched.route.forwards_credential);
         if let Some(matched) = matched_endpoint {
             req.extensions_mut()
                 .insert(temper_server::http_endpoint::AdmittedHttpEndpoint::new(
@@ -121,7 +124,16 @@ pub async fn bearer_auth_check(
         }
         // The credential has served its only purpose. Downstream handlers and
         // tenant WASM modules receive typed authority, never the reusable secret.
-        req.headers_mut().remove("authorization");
+        //
+        // Unless the matched endpoint implements a protocol whose credential the
+        // kernel cannot interpret and the app must resolve itself. Git
+        // smart-HTTP presents a GitToken as HTTP Basic: opaque here, and the
+        // only thing the guest can authenticate with. Removing it does not
+        // withhold kernel authority — it withholds the app's own credential and
+        // makes every authenticated push arrive anonymous.
+        if !forwards_credential {
+            req.headers_mut().remove("authorization");
+        }
         return Ok(next.run(req).await);
     }
 
@@ -136,7 +148,12 @@ pub async fn bearer_auth_check(
             )
                 .into_response());
         }
-        req.headers_mut().remove("authorization");
+        // Same exception on the public-route path, and this is the one git
+        // actually takes: its endpoints declare RequiresAuth=false so the guest
+        // can issue the smart-HTTP challenge itself.
+        if !matched.route.forwards_credential {
+            req.headers_mut().remove("authorization");
+        }
         req.extensions_mut()
             .insert(temper_authz::AuthenticatedRequestContext::new(
                 tenant.clone(),

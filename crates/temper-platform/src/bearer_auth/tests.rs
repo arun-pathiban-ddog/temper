@@ -42,12 +42,20 @@ async fn whoami(
 }
 
 fn protocol_route(requires_auth: bool) -> temper_server::http_endpoint::HttpEndpointRoute {
+    protocol_route_forwarding(requires_auth, false)
+}
+
+fn protocol_route_forwarding(
+    requires_auth: bool,
+    forwards_credential: bool,
+) -> temper_server::http_endpoint::HttpEndpointRoute {
     temper_server::http_endpoint::HttpEndpointRoute {
         id: "he-protocol".to_string(),
         path_prefix: "/repo.git".to_string(),
         methods: vec!["GET".to_string(), "POST".to_string()],
         integration_module: "protocol-adapter".to_string(),
         requires_auth,
+        forwards_credential,
         timeout_secs: 60,
         max_fuel: None,
         max_memory: None,
@@ -547,5 +555,71 @@ async fn session_header_reaches_cedar_only_through_an_approved_grant() {
     assert!(
         other.starts_with("cedar=None telemetry=Some(\"sess-other\")"),
         "a session outside the grant must stay out of the Cedar context: {other}"
+    );
+}
+
+#[tokio::test]
+async fn a_protocol_route_that_forwards_credentials_keeps_the_authorization_header() {
+    // The regression this exists for: the credential is removed by this
+    // middleware, before the router's own filter ever sees it. An opt-in that
+    // only taught the router about forwarding compiled, passed its own test and
+    // changed nothing, because the header was already gone. Assert at the layer
+    // that actually strips it.
+    let state = PlatformState::new(None);
+    state
+        .server
+        .http_endpoint_tables
+        .table_for(&TenantId::default())
+        .await
+        .replace(vec![protocol_route_forwarding(false, true)])
+        .await;
+
+    let response = app(state)
+        .oneshot(
+            HttpRequest::get("/repo.git/info/refs")
+                .header("authorization", "Basic cGF3Z190b2tlbjo=")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(body.to_vec()).unwrap(),
+        "default:Customer:anonymous:true",
+        "an endpoint that resolves its own protocol credential must still receive it"
+    );
+}
+
+#[tokio::test]
+async fn a_protocol_route_without_the_opt_in_still_loses_the_credential() {
+    let state = PlatformState::new(None);
+    state
+        .server
+        .http_endpoint_tables
+        .table_for(&TenantId::default())
+        .await
+        .replace(vec![protocol_route_forwarding(false, false)])
+        .await;
+
+    let response = app(state)
+        .oneshot(
+            HttpRequest::get("/repo.git/info/refs")
+                .header("authorization", "Basic cGF3Z190b2tlbjo=")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(body.to_vec()).unwrap(),
+        "default:Customer:anonymous:false",
+        "ARN-208 still holds for every endpoint that has not opted in"
     );
 }
