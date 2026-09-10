@@ -7,7 +7,7 @@ use super::DispatchContext;
 use crate::helpers::expect_string_arg;
 use crate::http::temper_request_bytes;
 
-const TEXT_BUDGET_BYTES: usize = 1024 * 1024;
+const TEXT_BUDGET_BYTES: usize = 128 * 1024;
 
 pub(super) async fn put_file_text(
     ctx: &DispatchContext<'_>,

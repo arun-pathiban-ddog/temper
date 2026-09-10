@@ -61,3 +61,68 @@ async fn pending_response_reports_cancel_invalid_and_leave_pending() {
 async fn file_upload_denial_reaches_human_elicitation_through_mcp() {
     check_pending_reply(json!({"result":{"action":"decline"}}), "declined", true).await;
 }
+
+#[tokio::test]
+async fn full_request_queue_still_delivers_human_reply() {
+    let (port, backend) = start_mock_backend().await;
+    let (server, mut client) = wire_session(port);
+    let script = async move {
+        client.initialize(true).await;
+        client.call_denied_action().await;
+        let elicitation = client.recv().await;
+        for id in 10..26 {
+            client
+                .send(json!({"jsonrpc":"2.0", "id":id, "method":"ping"}))
+                .await;
+        }
+        client
+            .send(json!({"jsonrpc":"2.0", "id":elicitation["id"], "result":{"action":"decline"}}))
+            .await;
+        let response = client.recv().await;
+        assert_eq!(
+            tool_result_json(&response)["elicitation_status"],
+            "declined"
+        );
+        for id in 10..26 {
+            assert_eq!(client.recv().await["id"], id);
+        }
+        drop(client);
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(server, script)
+    })
+    .await
+    .expect("human reply bypasses full queue");
+    result.expect("clean EOF");
+    assert!(backend.approve.lock().expect("lock").is_none());
+    assert!(backend.deny.lock().expect("lock").is_none());
+}
+
+#[tokio::test]
+async fn request_queue_overflow_ends_pending_elicitation_with_error() {
+    let (port, backend) = start_mock_backend().await;
+    let (server, mut client) = wire_session(port);
+    let script = async move {
+        client.initialize(true).await;
+        client.call_denied_action().await;
+        let elicitation = client.recv().await;
+        assert_eq!(elicitation["method"], "elicitation/create");
+        for id in 10..42 {
+            client
+                .send(json!({"jsonrpc":"2.0", "id":id, "method":"ping"}))
+                .await;
+        }
+        drop(client);
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(server, script)
+    })
+    .await
+    .expect("overflow ends promptly");
+    assert!(
+        result.is_err(),
+        "unbounded queue must not accept the complete burst"
+    );
+    assert!(backend.approve.lock().expect("lock").is_none());
+    assert!(backend.deny.lock().expect("lock").is_none());
+}

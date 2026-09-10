@@ -70,3 +70,53 @@
 **Chose the existing boundaries because:** Safe outcome diagnostics make pending decisions actionable without granting permission, while a 1 MiB UTF-8 upload method writes through the existing authenticated $value endpoint without host filesystem reads. No new approval route or storage state is introduced.
 
 **Where:** crates/temper-mcp/src/elicit_status.rs; crates/temper-sandbox/src/file_text.rs; integrated PR #436 ancestry.
+
+
+## MCP transport review corrections
+
+**Decision:** Bound pending client requests without blocking the response reader, preserve transport failures, and limit inline File text to 128 KiB.
+
+**Came up because:** PR436 queued requests without a bound during human elicitation and converted I/O failures to clean shutdown; the new 1 MiB text allowance also exceeded the existing MCP frame budget after encoding.
+
+**Options:** Retain the current behavior; await a bounded request queue; add concurrent dispatch or chunked uploads; use bounded nonblocking admission and the existing transport.
+
+**Chose bounded nonblocking admission because:** Responses must still reach the active human request when ordinary requests fill the queue. Overflow closes the transport explicitly and leaves decisions pending. Reader, writer, and task failures remain errors; normal EOF remains clean. A 128 KiB text budget leaves room for Python and JSON escaping within the unchanged 1 MiB frame cap. Arbitrary extra execute code is still subject to that whole-frame limit.
+
+**Where:** crates/temper-mcp/src/runtime.rs; crates/temper-mcp/src/protocol.rs; crates/temper-sandbox/src/file_text.rs.
+
+
+**Decision:** Encode large inline text as adjacent Python literals on short source lines, without changing Monty.
+
+**Came up because:** The real stdio test exposed Monty's existing source-column conversion panic for a single large source line; the accepted 128 KiB content itself fits the existing transport when encoded across short lines.
+
+**Options:** Change the interpreter; shrink all uploads below this unrelated source-line constraint; use ordinary multiline Python construction and document it.
+
+**Chose multiline construction because:** It proves the required upload size through the real parser and transport without introducing an interpreter repair into this effort. Arbitrary oversized source lines remain an existing interpreter limitation.
+
+**Where:** crates/temper-mcp/src/file_text_tests.rs; crates/temper-mcp/src/protocol.rs.
+
+
+## Shared gate rollout order
+
+**Decision:** Merge Stack #17 before installing the consuming SDLC workflow changes in Temper #436.
+
+**Came up because:** The candidate workflows call check-effort-artifacts.py's Git-object support, proof/validate.py --features-commit, and gates/rerun-record-checks.py; those capabilities are in companion Stack #17, not yet its default branch.
+
+**Options:** Pin to a private feature branch; merge shared implementation first.
+
+**Chose shared implementation first because:** It preserves the accepted unpinned Stack-default contract and ensures consumers can resolve their commands.
+
+**Where:** .github/workflows/sdlc-{planning,verification,decision-intake}.yml; Stack #17.
+
+
+## Intake check visibility
+
+**Decision:** Give decision intake checks:read permission.
+
+**Came up because:** Its current-head rerun helper uses the Check Runs API.
+
+**Options:** Grant checks:read for that read; filter pull_request_target workflow runs using the PR head SHA.
+
+**Chose checks:read because:** It adds read authority only and avoids incorrect PR-head filtering of base-SHA pull_request_target runs.
+
+**Where:** .github/workflows/sdlc-decision-intake.yml; Stack gates/rerun-record-checks.py.

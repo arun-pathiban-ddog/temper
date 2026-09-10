@@ -435,7 +435,14 @@ async fn client_disconnect_mid_elicitation_ends_promptly_without_resolution() {
     })
     .await
     .expect("session ends promptly after client disconnect");
-    server_result.expect("server loop");
+    let error = server_result.expect_err("closed output reports its write failure");
+    assert_eq!(
+        error
+            .downcast_ref::<std::io::Error>()
+            .expect("I/O error")
+            .kind(),
+        std::io::ErrorKind::BrokenPipe,
+    );
 
     assert!(
         backend.approve.lock().expect("approve lock").is_none(),

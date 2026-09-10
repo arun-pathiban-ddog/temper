@@ -232,7 +232,7 @@ ENTITY OPERATIONS:\n\
 \x20 await temper.create(tenant, entity_type, fields) -> create entity\n\
 \x20 await temper.action(tenant, entity_type, entity_id, action_name, body) -> invoke action\n\
 \x20 await temper.patch(tenant, entity_type, entity_id, fields) -> update fields\n\
-\x20 await temper.put_file_text(tenant, file_id, content, content_type) -> PUT File $value; UTF-8 text up to 1 MiB, application/json | text/plain | text/markdown\n\
+\x20 await temper.put_file_text(tenant, file_id, content, content_type) -> PUT File $value; UTF-8 text up to 128 KiB (complete execute frame remains limited to 1 MiB; build large content using adjacent literals on short source lines), application/json | text/plain | text/markdown\n\
 \n\
 DEVELOPER:\n\
 \x20 await temper.submit_specs(tenant, {\"entity.ioa.toml\": \"...\", \"model.csdl.xml\": \"...\"}) -> submit specs\n\
