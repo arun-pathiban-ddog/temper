@@ -141,9 +141,59 @@ impl ServerState {
         key: &str,
         max_bytes: u64,
     ) -> Result<super::BlobStreamRead, String> {
-        self.blob_store_for_tenant(tenant)?
-            .get_stream(key, max_bytes)
+        match self.blob_store_for_tenant(tenant) {
+            Ok(store) => match store.get_stream(key, max_bytes).await {
+                Ok(super::BlobStreamRead::Missing) => {}
+                other => return other,
+            },
+            Err(error) => {
+                tracing::debug!(
+                    %key,
+                    %error,
+                    "object blob store unavailable for streaming read; trying legacy DB blob fallback"
+                );
+            }
+        }
+
+        // Objects written before the object-store migration live in the legacy
+        // DB blob store. `get_blob_with_legacy_fallback` already consults it, so
+        // without the same fallback here the streaming and non-streaming reads
+        // disagree about which objects exist: a Genesis app bundle reported
+        // "field overflow blob ... not found" for a blob the HTTP blob route
+        // served successfully at the same moment.
+        self.legacy_blob_stream(tenant, key, max_bytes).await
+    }
+
+    /// Read one object from the legacy DB blob store as a bounded stream.
+    async fn legacy_blob_stream(
+        &self,
+        tenant: &TenantId,
+        key: &str,
+        max_bytes: u64,
+    ) -> Result<super::BlobStreamRead, String> {
+        if tenant != &TenantId::default() {
+            return Ok(super::BlobStreamRead::Missing);
+        }
+        let Some(store) = self.metadata_store_for_tenant(tenant.as_str()).await else {
+            return Ok(super::BlobStreamRead::Missing);
+        };
+        let Some(bytes) = store
+            .get_blob(key)
             .await
+            .map_err(|error| format!("legacy DB blob read failed for '{key}': {error}"))?
+        else {
+            return Ok(super::BlobStreamRead::Missing);
+        };
+        let actual = bytes.len() as u64;
+        if actual > max_bytes {
+            return Ok(super::BlobStreamRead::TooLarge {
+                actual_bytes: Some(actual),
+            });
+        }
+        tracing::debug!(%key, bytes = actual, "served blob from the legacy DB store");
+        Ok(super::BlobStreamRead::Found(
+            super::BlobObjectStream::from_bytes(bytes),
+        ))
     }
 
     fn local_blob_store(&self, tenant: &TenantId) -> Option<BlobStore> {
