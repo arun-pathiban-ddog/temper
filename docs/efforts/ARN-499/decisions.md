@@ -235,8 +235,8 @@ which is the real integrity check and is independent of the declared size.
 `stream_blob_object` carried a comment stating that large field-overflow objects
 are deliberately *not* read from the legacy database fallback, because that
 interface is buffered. My previous commit added exactly that fallback and read
-the whole object before checking its size, silently overriding a recorded
-decision. Now the fallback asks the store to bound the read
+the whole object before checking its size, silently overriding a
+recorded decision. The fallback now asks the store to bound the read
 (`get_blob_if_size_at_most`) so it never materializes an object above the
 caller's ceiling, and the comment says what the code actually does. The intent —
 never buffer a large blob — is preserved; only the "therefore pretend it does not
