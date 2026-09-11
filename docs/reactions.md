@@ -231,7 +231,9 @@ These properties are load-bearing and unchanged by any of the four Phase additio
 - **Tenant isolation.** Reactions only fire for rules registered under the same tenant as the source action.
 - **System principal.** Target actions dispatched by reactions run under `AgentContext::system()`, not the source action's principal.
 - **Determinism under `SimReactionSystem`.** Two seeded runs with the same inputs produce the same reaction firing order and the same `create`-resolver IDs.
-- **Budget.** `MAX_REACTIONS_PER_TENANT = 256`, `MAX_GUARD_DEPTH = 4`.
+- **Guard nesting bound.** `MAX_GUARD_DEPTH = 4` caps the nesting of composite reaction guards, enforced at parse time.
+
+A tenant's reaction-rule count is deliberately **not** on this list. `MAX_REACTIONS_PER_TENANT = 256` is an advisory threshold: `register_tenant_rules` warns above it and registers every rule. It asserted until 2026-09-10, when a tenant's fifteenth app took it to 265 rules and the panic crash-looped the platform at startup. Nothing is sized from it, so exceeding it corrupts nothing. See ADR-0176.
 
 ---
 
