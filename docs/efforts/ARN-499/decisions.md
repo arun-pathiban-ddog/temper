@@ -766,3 +766,113 @@ two paths add up to more than either intended. "Rare" is a property of today's
 data, not of the code.
 
 **Where.** `crates/temper-server/src/blob_store/state.rs`.
+
+## D23: Forward only the protocol credential formats, because failing to resolve does not mean harmless
+
+**Decision:** A forwarding route releases the `Authorization` header only when
+its scheme is `Basic` or `token`. `Bearer` is never forwarded, resolved or not.
+
+**Came up because:** Greptile, grok and codex independently found the same hole
+in the previous rule, and it is the sharpest finding of the effort. Credential
+resolution is **tenant-scoped**. A valid kernel credential for tenant A,
+presented with `X-Tenant-Id: B`, fails to resolve — and the previous rule read
+that failure as "not a kernel credential" and handed it to tenant B's WASM
+guest, still perfectly usable against tenant A.
+
+**Options:** Check the credential against every tenant's `AgentCredential`
+registry before forwarding; forward nothing and mint a scoped token for the
+guest instead; forward only the formats the protocol actually uses.
+
+**Chose the format allowlist because:** The global check has no cheap form — the
+kernel has no tenant enumeration, and `AgentCredential` is keyed by hash per
+tenant, so "is this anyone's credential?" is a scan. Minting a scoped token is
+the better long-term design and too large for this effort. The allowlist is
+positive rather than negative — it names what may travel instead of guessing
+what may not — and it matches the documented contracts: git smart-HTTP presents
+a GitToken as the HTTP Basic username, the GitHub-compatible REST surface uses
+`token`.
+
+**Twice wrong before this.** The first rule keyed off the scheme negatively
+(strip every `Bearer`), which withheld GitTokens a client chose to send that
+way. The second keyed off resolution, which is worse for the reason above. Both
+are recorded here rather than quietly replaced, because the pattern — treating
+"we could not interpret it" as "it is not dangerous" — is the actual lesson.
+
+**What this does not close.** A kernel credential presented as HTTP *Basic* to a
+git route would still be forwarded, since Basic is the format git uses. Closing
+that needs the global credential check or the scoped-token redesign. Recorded,
+not hidden.
+
+**Where.** `crates/temper-platform/src/bearer_auth.rs`
+(`credential_is_forwardable_protocol_format`), tested in all four directions by
+`a_forwarding_route_forwards_only_the_protocol_credential_formats`.
+
+## D24: Ownership of a policy statement is the durable row, never text containment
+
+**Decision:** A revoked Policy removes its statement from the live text only if
+it has an enabled durable row of its own AND no other enabled row carries the
+same text. Otherwise the row is disabled and the engine is left alone.
+
+**Came up because:** Greptile and codex, separately. The live policy text is a
+merge of several sources — bootstrap permits, the legacy blob, other Policy rows
+— and the previous guard only compared against other *Policy entities*, then
+removed by unrestricted string replacement. Revoking a Policy whose text
+happened to match an existing `forbid` would have deleted that restriction from
+the running engine. And a row that never reached `Active` was treated as owning
+text it had never contributed.
+
+**Options:** Track ownership in a new side table; give each statement an
+identifying comment marker; use the durable policy row that already exists.
+
+**Chose the durable row because** it is already the record of what this entity
+installed — `save_policy` writes it keyed by entity id — so ownership needs no
+new state that could drift from the thing it describes. A marker comment would
+put bookkeeping inside Cedar source that humans read.
+
+**Where.** `crates/temper-platform/src/policy_activation.rs`
+(`this_row_owns_the_statement`).
+
+## D25: Recovery enumerates tenants from the store, not from the state it is recovering
+
+**Decision:** The startup and lag sweep takes its tenant list from the durable
+policy store, unioned with the tracked in-memory map.
+
+**Came up because:** Greptile pointed out the circularity: the sweep discovered
+tenants through `tenant_policies`, which is exactly the in-memory state the
+sweep exists to rebuild. A Policy that reached `Active` durably before this
+consumer wrote anything leaves no trace there, so after a restart its tenant was
+never visited and its approved policy stayed uninstalled — the precise gap the
+sweep was added to close.
+
+**Options:** Add a tenant registry to the kernel; enumerate tenants from the
+event store; read them from the policy store rows.
+
+**Chose the policy store because** it is the durable record of the very thing
+being recovered, so any tenant with a policy to restore is in it by
+construction. A kernel-wide tenant registry is the better primitive and a much
+larger change.
+
+**Where.** `crates/temper-platform/src/policy_activation.rs`
+(`reconcile_tracked_tenants`).
+
+## D26: The caller's budget bounds an overflow read, not the descriptor being validated
+
+**Decision:** `read_overflow_base64_buffered` refuses a descriptor whose encoded
+size exceeds the caller's budget, instead of streaming to the size the
+descriptor claims.
+
+**Came up because:** codex noticed the undeclared-length path passed
+`descriptor.serialized_bytes` straight through as the ceiling. The other two
+overflow paths compare the descriptor against a budget-derived length first;
+this one had no declared length to compare against and so bounded the read by
+the number it was supposed to be checking. A row claiming half a gigabyte would
+have been read into memory.
+
+**Options:** Clamp silently to the budget; refuse; leave it, since these objects
+are small by construction.
+
+**Chose refusal because** clamping would truncate a value and then decode the
+truncation, and "small by construction" is a property of today's data. The
+refusal names both numbers so the failure is diagnosable.
+
+**Where.** `crates/temper-platform/src/genesis_install/blob_materialization.rs`.

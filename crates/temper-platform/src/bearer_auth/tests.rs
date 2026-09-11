@@ -611,17 +611,19 @@ async fn a_protocol_route_that_forwards_credentials_keeps_the_authorization_head
 }
 
 #[tokio::test]
-async fn a_forwarding_route_never_hands_a_guest_a_resolved_kernel_credential() {
-    // The opt-in exists for a credential the KERNEL CANNOT INTERPRET, which the
-    // app must resolve for itself. If the kernel just resolved it, it is kernel
-    // authority -- reusable against every route -- and must not reach a guest
-    // whatever the route declared.
+async fn a_forwarding_route_forwards_only_the_protocol_credential_formats() {
+    // The rule, arrived at the hard way. The opt-in exists for a credential the
+    // kernel cannot interpret and the app must resolve: git smart-HTTP presents
+    // a GitToken as HTTP Basic, the GitHub-compatible REST surface uses the
+    // `token` scheme. Those forward. `Bearer` never does.
     //
-    // The first version of this rule keyed off the scheme and stripped every
-    // Bearer. That was wrong in the other direction: a GitToken presented as
-    // `Bearer <token>` is not kernel authority either, and stripping it broke
-    // exactly the callers the exception exists for. What matters is whether the
-    // kernel accepted it, not how it was spelled.
+    // Two earlier versions of this rule were wrong in opposite directions. One
+    // keyed off "is it a Bearer", which stripped GitTokens a client chose to
+    // send that way. The next keyed off "did it resolve", which is worse:
+    // resolution is TENANT-SCOPED, so a valid kernel credential for tenant A
+    // presented with `X-Tenant-Id: B` fails to resolve and would have been
+    // handed to tenant B's guest, still perfectly usable against tenant A.
+    // Failing to resolve does not make a credential harmless.
     let state = PlatformState::new(None);
     crate::bootstrap::bootstrap_agent_specs(&state, "default", false, &BTreeMap::new());
     crate::bootstrap::bootstrap_operator_credential(&state, "tenant-key", "default")
@@ -635,47 +637,43 @@ async fn a_forwarding_route_never_hands_a_guest_a_resolved_kernel_credential() {
         .replace(vec![protocol_route_forwarding(false, true)])
         .await;
 
-    let response = app(state.clone())
-        .oneshot(
-            HttpRequest::get("/repo.git/info/refs")
-                .header("authorization", "Bearer tenant-key")
-                .header("x-tenant-id", "default")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    async fn guest_saw_credential(state: &PlatformState, authorization: &str) -> String {
+        let response = app(state.clone())
+            .oneshot(
+                HttpRequest::get("/repo.git/info/refs")
+                    .header("authorization", authorization)
+                    .header("x-tenant-id", "default")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(body.to_vec()).unwrap()
+    }
+
     assert_eq!(
-        String::from_utf8(body.to_vec()).unwrap(),
+        guest_saw_credential(&state, "Basic cGF3Z190b2tlbjo=").await,
+        "default:Customer:anonymous:true",
+        "HTTP Basic is how git presents a GitToken; the guest must receive it"
+    );
+    assert_eq!(
+        guest_saw_credential(&state, "token ghp_example").await,
+        "default:Customer:anonymous:true",
+        "the GitHub-compatible REST surface uses the `token` scheme"
+    );
+    assert_eq!(
+        guest_saw_credential(&state, "Bearer tenant-key").await,
         "default:Agent:operator:false",
         "a credential the kernel resolved is kernel authority and is stripped"
     );
-
-    let unresolved = app(state)
-        .oneshot(
-            HttpRequest::get("/repo.git/info/refs")
-                .header(
-                    "authorization",
-                    "Bearer a-git-token-the-kernel-does-not-know",
-                )
-                .header("x-tenant-id", "default")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(unresolved.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(unresolved.into_body(), usize::MAX)
-        .await
-        .unwrap();
     assert_eq!(
-        String::from_utf8(body.to_vec()).unwrap(),
-        "default:Customer:anonymous:true",
-        "a credential the kernel could not interpret is the app's to resolve, and reaches it"
+        guest_saw_credential(&state, "Bearer a-credential-for-some-other-tenant").await,
+        "default:Customer:anonymous:false",
+        "an UNRESOLVED Bearer is withheld too: it may be valid in a tenant this request did not name"
     );
 }
 

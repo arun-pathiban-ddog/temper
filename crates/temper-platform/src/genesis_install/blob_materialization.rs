@@ -403,6 +403,20 @@ async fn read_overflow_base64_buffered(
     descriptor: temper_server::blobs::FieldOverflowDescriptor<'_>,
     max_bytes: u64,
 ) -> Result<Vec<u8>, String> {
+    // Bound by the CALLER's budget, not by the descriptor.
+    //
+    // The descriptor is the thing being validated; letting it set its own
+    // ceiling means a row claiming half a gigabyte gets half a gigabyte read
+    // into memory. The other two overflow paths compare the descriptor against
+    // a budget-derived length before reading; this one had no declared length
+    // to compare against, so it must clamp instead.
+    let encoded_budget = encoded_json_base64_len(max_bytes)?;
+    if descriptor.serialized_bytes > encoded_budget {
+        return Err(format!(
+            "Genesis field overflow blob {} declares {} encoded bytes; budget is {encoded_budget}",
+            descriptor.key, descriptor.serialized_bytes
+        ));
+    }
     let encoded = match state
         .stream_blob_object(tenant, descriptor.key, descriptor.serialized_bytes)
         .await?

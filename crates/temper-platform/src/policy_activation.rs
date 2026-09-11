@@ -72,13 +72,22 @@ pub fn spawn_policy_activation_reconciler(state: PlatformState) {
 /// A tenant outside that set still converges through its own `Policy` events;
 /// what the sweep adds is recovery for the tenants this process is serving.
 async fn reconcile_tracked_tenants(state: &PlatformState) {
-    let tenants: Vec<String> = state
-        .server
-        .tenant_policies
-        .read()
-        .ok()
-        .map(|policies| policies.keys().cloned().collect())
-        .unwrap_or_default();
+    // Tenants come from the durable policy store FIRST. Reading them out of
+    // `tenant_policies` alone would enumerate recovery targets from the very
+    // in-memory state this sweep exists to rebuild: a Policy that reached
+    // Active durably before this consumer wrote anything leaves no trace there,
+    // so after a restart its tenant would never be visited and the approved
+    // policy would stay uninstalled.
+    let mut tenants: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    if let Some(store) = state.server.policy_store()
+        && let Ok(rows) = store.load_all_policies().await
+    {
+        tenants.extend(rows.into_iter().map(|row| row.tenant));
+    }
+    if let Ok(policies) = state.server.tenant_policies.read() {
+        tenants.extend(policies.keys().cloned());
+    }
+    let tenants: Vec<String> = tenants.into_iter().collect();
 
     for tenant in tenants {
         let tenant = TenantId::new(&tenant);
@@ -121,7 +130,8 @@ async fn apply_policy_entity(state: &PlatformState, tenant: &TenantId, entity_id
         return;
     }
 
-    if !should_be_in_force && another_active_policy_owns(state, tenant, entity_id, &statement).await
+    if !should_be_in_force
+        && !this_row_owns_the_statement(state, tenant, entity_id, &statement).await
     {
         // Two rows can carry the same statement. Removing the text because one
         // was revoked would silently un-grant the other, which is still Active
@@ -131,8 +141,8 @@ async fn apply_policy_entity(state: &PlatformState, tenant: &TenantId, entity_id
         tracing::info!(
             tenant = %tenant,
             entity_id,
-            "revoked Policy shares its statement with another Active policy; \
-             the statement stays in force"
+            "revoked Policy does not solely own its statement (shared with another \
+             policy row, or never activated); the live policy text is unchanged"
         );
         return;
     }
@@ -140,39 +150,44 @@ async fn apply_policy_entity(state: &PlatformState, tenant: &TenantId, entity_id
     set_statement_in_force(state, tenant, entity_id, &statement, should_be_in_force).await;
 }
 
-/// Does a different `Policy` row, still `Active`, carry this same statement?
-async fn another_active_policy_owns(
+/// Did THIS row put the statement into the live text, and is it the only source?
+///
+/// Ownership is the durable policy row, not text containment. Two things go
+/// wrong when you infer ownership from "the live text contains this string":
+///
+/// - The same statement may have come from somewhere else entirely -- the
+///   bootstrap permits, the legacy policy blob, another Policy row. Removing it
+///   because one Policy was revoked deletes a rule nobody revoked, and if that
+///   statement was a `forbid`, revoking a Policy quietly lifts a restriction.
+/// - A row that was never activated owns nothing, so a revoke or reject that
+///   never passed through Active must not remove text it never contributed.
+///
+/// So: this row owns the statement only if it has an enabled durable row of its
+/// own, and no other enabled row carries the same text.
+async fn this_row_owns_the_statement(
     state: &PlatformState,
     tenant: &TenantId,
     entity_id: &str,
     statement: &str,
 ) -> bool {
-    for other_id in state.server.list_entity_ids_lazy(tenant, "Policy").await {
-        if other_id == entity_id {
-            continue;
-        }
-        let Ok(other) = state
-            .server
-            .get_tenant_entity_state(tenant, "Policy", &other_id)
-            .await
-        else {
-            continue;
-        };
-        if other.state.status != "Active" {
-            continue;
-        }
-        let other_statement = other
-            .state
-            .fields
-            .get("cedar_statement")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .trim();
-        if other_statement == statement {
-            return true;
-        }
+    let Some(store) = state.server.policy_store() else {
+        // With no durable store there is no ownership record to consult, and
+        // guessing from text is exactly what this function exists to avoid.
+        return false;
+    };
+    let Ok(rows) = store.load_policies_for_tenant(tenant.as_str()).await else {
+        return false;
+    };
+
+    let owns_enabled_row = rows
+        .iter()
+        .any(|row| row.policy_id == entity_id && row.enabled);
+    if !owns_enabled_row {
+        return false;
     }
-    false
+    !rows
+        .iter()
+        .any(|row| row.policy_id != entity_id && row.enabled && row.cedar_text.contains(statement))
 }
 
 /// Stop a revoked policy's durable row from being reinstalled at the next boot.

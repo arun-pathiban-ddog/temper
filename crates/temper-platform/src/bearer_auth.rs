@@ -15,6 +15,24 @@ use temper_runtime::tenant::TenantId;
 
 const BASIC_CREDENTIAL_DECODE_BUDGET: usize = 8 * 1024;
 
+/// Is this credential in a format a protocol guest is meant to resolve?
+///
+/// Positively scoped on purpose: `Basic` (git smart-HTTP presents a GitToken as
+/// the Basic username) and `token` (the GitHub-compatible REST surface). Every
+/// other scheme -- `Bearer` above all -- is withheld, because a credential that
+/// merely failed to resolve is not thereby safe to hand to a guest: resolution
+/// is tenant-scoped, so a valid kernel bearer aimed at the wrong tenant fails
+/// to resolve while remaining perfectly usable against the right one.
+fn credential_is_forwardable_protocol_format(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim_start().split_once(' '))
+        .is_some_and(|(scheme, _)| {
+            scheme.eq_ignore_ascii_case("basic") || scheme.eq_ignore_ascii_case("token")
+        })
+}
+
 /// Resolve the request's bearer credential and attach typed authority.
 pub async fn bearer_auth_check(
     State(state): State<PlatformState>,
@@ -150,11 +168,20 @@ pub async fn bearer_auth_check(
         // Same exception on the public-route path, and this is the one git
         // actually takes: its endpoints declare RequiresAuth=false so the guest
         // can issue the smart-HTTP challenge itself.
-        // No credential was accepted as kernel authority on this path, so a
-        // Bearer here is not a kernel token -- it is whatever the client chose
-        // to present, and a GitToken may legitimately arrive that way. Refusing
-        // by scheme would break exactly the callers this exception is for.
-        if !matched.route.forwards_credential {
+        // Forward ONLY the credential formats the protocol actually uses, and
+        // never `Bearer`.
+        //
+        // Failing to resolve a credential does not make it harmless. Resolution
+        // is tenant-scoped, so a VALID kernel bearer for tenant A presented
+        // with `X-Tenant-Id: B` fails to resolve and lands here still valid --
+        // and forwarding "whatever did not resolve" would hand it to untrusted
+        // WASM. Git smart-HTTP presents a GitToken as HTTP Basic and the
+        // GitHub-compatible REST surface uses the `token` scheme; those are the
+        // formats a guest is expected to resolve, so those are the only ones
+        // that travel.
+        if !matched.route.forwards_credential
+            || !credential_is_forwardable_protocol_format(req.headers())
+        {
             req.headers_mut().remove("authorization");
         }
         req.extensions_mut()
