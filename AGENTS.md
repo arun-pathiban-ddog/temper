@@ -58,6 +58,7 @@ Suites: `platform_e2e_dst`, `system_entity_dst` (crates/temper-platform/tests/).
 - Edition 2024, rust-version 1.85. `gen` is a reserved keyword.
 - Files over 500 lines split into directory modules. All pub items documented.
 - TigerStyle: bounded mailboxes, pre/post assertions at function entry and return, budgets not limits, fail fast on invariant violation, no silent failures.
+- A budget asserts only where exceeding it corrupts something: a preallocated buffer, a fixed-size array, a loop with a static bound. A count of entries in a growable structure is not an invariant, so it is reported and not asserted — aborting on it converts a large map into an outage. See ADR-0176.
 - `temper-jit` must not depend on `temper-verify` in `[dependencies]`. Production binaries must not pull in `stateright` or `proptest`.
 
 ## Commands

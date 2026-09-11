@@ -783,11 +783,16 @@ type = "same_id"
         assert!(rules[0].then.params_from.is_empty());
     }
 
-    /// Past the advisory threshold a tenant still registers, and every rule
-    /// still dispatches. This replaces a test that asserted the opposite: that
-    /// crossing the threshold panics. It did, on a tenant's fifteenth app, at
-    /// startup, on the main thread, taking the platform down over a number that
-    /// sized no buffer.
+    /// Past the advisory threshold a tenant still registers every rule, and
+    /// every rule is still found by [`ReactionRegistry::lookup`] — the single
+    /// call [`ReactionDispatcher`](super::dispatcher::ReactionDispatcher) makes
+    /// to decide what fires, and the stage that previously came up empty. Guard
+    /// evaluation, authorization and target resolution run per rule afterwards
+    /// and are unaffected by how many rules the tenant holds; they are covered
+    /// by the dispatcher's own tests. This replaces a test that asserted the
+    /// opposite: that crossing the threshold panics. It did, on a tenant's
+    /// fifteenth app, at startup, on the main thread, taking the platform down
+    /// over a number that sized no buffer.
     #[test]
     fn a_tenant_past_the_advisory_threshold_still_registers_every_rule() {
         let mut reg = ReactionRegistry::new();
@@ -798,8 +803,9 @@ type = "same_id"
 
         reg.register_tenant_rules("t1", rules);
 
-        // The rules are not merely accepted, they are findable: the ones past
-        // the old ceiling dispatch exactly like the ones below it.
+        // The rules are not merely accepted, they are findable: the dispatcher
+        // asks exactly this question, and the ones past the old ceiling answer
+        // it exactly like the ones below it.
         let found = reg.lookup(&TenantId::from("t1"), "Order", "Placed", "");
         assert_eq!(found.len(), over);
     }
