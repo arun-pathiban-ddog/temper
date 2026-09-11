@@ -155,6 +155,23 @@ jobs:
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
         run: python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD"
+      - name: Retain human control of previously armed auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          RISK=$(python3 -c "import json; r=json.load(open('.review/review.json')); print('human' if r.get('risk_flags') or r.get('risk')!='low' else 'low')")
+          CHANGED=$(git diff --name-only "${PR_BASE}...${PR_HEAD}")
+          if [ "$RISK" != "low" ] || grep -q '^\.github/workflows/' <<<"$CHANGED"; then
+            ARMED=$(gh pr view "$PR_NUM" --json autoMergeRequest -q '.autoMergeRequest != null')
+            if [ "$ARMED" = "true" ]; then
+              gh pr merge "$PR_NUM" --disable-auto
+            fi
+            echo "Human merge authorization required; the owning effort carries the decision."
+          fi
       - name: Fold the verdict into a PR comment
         if: always()
         uses: actions/github-script@v7
@@ -198,7 +215,8 @@ jobs:
               output: {title: 'review', summary: 'Validated using trusted base-repository gate code.'}
             };
             if (checkId) {
-              await github.rest.checks.update({...report, check_run_id: checkId});
+              const {head_sha, ...update} = report;
+              await github.rest.checks.update({...update, check_run_id: checkId});
             } else {
               await github.rest.checks.create(report);
             }

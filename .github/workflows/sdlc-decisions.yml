@@ -68,7 +68,8 @@ jobs:
               output: {title: 'decision-log', summary: 'Validated using trusted base-repository gate code.'}
             };
             if (checkId) {
-              await github.rest.checks.update({...report, check_run_id: checkId});
+              const {head_sha, ...update} = report;
+              await github.rest.checks.update({...update, check_run_id: checkId});
             } else {
               await github.rest.checks.create(report);
             }
