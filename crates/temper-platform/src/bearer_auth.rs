@@ -15,6 +15,27 @@ use temper_runtime::tenant::TenantId;
 
 const BASIC_CREDENTIAL_DECODE_BUDGET: usize = 8 * 1024;
 
+/// Is the presented credential a kernel bearer token?
+///
+/// The forwarding exception exists for protocol credentials the kernel cannot
+/// interpret and the app must resolve for itself — git smart-HTTP presents a
+/// GitToken as HTTP Basic. A `Bearer` token is the opposite: it is kernel
+/// authority, reusable against every kernel route, and a WASM guest must never
+/// receive one. So the exception is scoped by scheme rather than by trusting the
+/// route declaration alone; a caller who presents a kernel key to a git endpoint
+/// does not thereby hand it to the git module.
+fn credential_is_kernel_bearer(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .trim_start()
+                .get(..7)
+                .is_some_and(|scheme| scheme.eq_ignore_ascii_case("bearer "))
+        })
+}
+
 /// Resolve the request's bearer credential and attach typed authority.
 pub async fn bearer_auth_check(
     State(state): State<PlatformState>,
@@ -131,7 +152,7 @@ pub async fn bearer_auth_check(
         // only thing the guest can authenticate with. Removing it does not
         // withhold kernel authority — it withholds the app's own credential and
         // makes every authenticated push arrive anonymous.
-        if !forwards_credential {
+        if !forwards_credential || credential_is_kernel_bearer(req.headers()) {
             req.headers_mut().remove("authorization");
         }
         return Ok(next.run(req).await);
@@ -151,7 +172,7 @@ pub async fn bearer_auth_check(
         // Same exception on the public-route path, and this is the one git
         // actually takes: its endpoints declare RequiresAuth=false so the guest
         // can issue the smart-HTTP challenge itself.
-        if !matched.route.forwards_credential {
+        if !matched.route.forwards_credential || credential_is_kernel_bearer(req.headers()) {
             req.headers_mut().remove("authorization");
         }
         req.extensions_mut()

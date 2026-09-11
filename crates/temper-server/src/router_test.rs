@@ -2673,6 +2673,54 @@ fn credential_forwarding_is_off_by_default_and_explicit_when_on() {
 }
 
 #[test]
+fn the_forwarding_opt_in_releases_only_the_protocol_credential() {
+    // Opting in releases ONE header. A git module needs the GitToken the client
+    // presented; it has no business receiving the caller's session cookie, an
+    // API key, or whatever an identity-aware proxy injected in front of the
+    // kernel. The first version of this opt-in disabled the whole denylist,
+    // which handed a guest all sixteen.
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::AUTHORIZATION,
+        axum::http::HeaderValue::from_static("Basic cGF3Z190b2tlbjo="),
+    );
+    for (name, value) in [
+        ("cookie", "session=super-secret"),
+        ("x-api-key", "live-key"),
+        ("x-forwarded-access-token", "idp-token"),
+        ("x-goog-iap-jwt-assertion", "iap-assertion"),
+        ("cf-access-jwt-assertion", "cf-assertion"),
+    ] {
+        headers.insert(
+            axum::http::HeaderName::from_static(name),
+            axum::http::HeaderValue::from_str(value).expect("test header value"),
+        );
+    }
+
+    let forwarded = guest_visible_headers(&headers, true);
+    assert!(
+        forwarded
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("authorization")),
+        "the opted-in route still resolves its own protocol credential; got {forwarded:?}"
+    );
+    for leaked in [
+        "cookie",
+        "x-api-key",
+        "x-forwarded-access-token",
+        "x-goog-iap-jwt-assertion",
+        "cf-access-jwt-assertion",
+    ] {
+        assert!(
+            !forwarded
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case(leaked)),
+            "{leaked} must stay stripped even on a forwarding route; got {forwarded:?}"
+        );
+    }
+}
+
+#[test]
 fn credential_header_classifier_is_case_insensitive() {
     for name in [
         "Authorization",

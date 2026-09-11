@@ -280,7 +280,19 @@ pub(crate) fn guest_visible_headers(
 ) -> Vec<(String, String)> {
     headers
         .iter()
-        .filter(|(name, _)| forwards_credential || !is_credential_header(name.as_str()))
+        .filter(|(name, _)| {
+            // `forwards_credential` is an exception for exactly one header: the
+            // protocol credential the guest is required to resolve itself. It is
+            // not a general opt-out of the denylist. Cookies, `x-api-key` and the
+            // forwarded-auth family (IAP, Cloudflare Access, ALB OIDC) stay
+            // stripped on these routes too — a git module needs the GitToken the
+            // client presented, never the caller's session cookie or whatever an
+            // identity-aware proxy injected in front of the kernel.
+            if forwards_credential && name.as_str().eq_ignore_ascii_case("authorization") {
+                return true;
+            }
+            !is_credential_header(name.as_str())
+        })
         .filter_map(|(k, v)| {
             v.to_str()
                 .ok()
