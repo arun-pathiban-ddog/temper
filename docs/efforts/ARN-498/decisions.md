@@ -6,12 +6,6 @@
 **Chose workflow correction because:** It preserves original contributions and the existing private tooling without another service. Builds stay unprivileged.
 **Where:** Stack gates and Temper .github/workflows/sdlc-*.yml.
 
-**Decision:** Keep the existing three-round arbitration and targeted final review decision explicit in the review record.
-**Came up because:** Nick’s original PRs have an approved terminal decision but the validator otherwise insists on another full panel.
-**Options:** Ignore the human decision; rerun the panel; validate its existing evidence and directed final reviewers.
-**Chose explicit evidence because:** It honors the approved workflow and preserves commit binding and unresolved-defect checks. No new approval service or identity model.
-**Where:** Stack REVIEW.md and review/{schema.json,validate.py}; Ask en-01a08869-9373-7063-a217-271bb8a34531.
-
 **Decision:** Use local isolated worktrees and GitHub directly for this effort.
 **Came up because:** Temper MCP and health endpoint return HTTP 503.
 **Options:** Wait indefinitely; repair the platform; use the local exception Rita explicitly approved.
@@ -29,3 +23,9 @@
 **Options:** Rely on undocumented extra-field handling and empty-set truthiness; preserve the existing contracts explicitly.
 **Chose explicit contracts because:** A check is updated by its ID, while a declared feature map must reject unknown names even when it contains no features. The alleged HTTP422 was not observed; the API field correction follows GitHub's documented update contract.
 **Where:** Contributor result reporters; Stack proof/validate.py and focused regressions.
+
+**Decision:** Remove all additions outside the fork-token correction, including the terminal-review record extension.
+**Came up because:** Rita explicitly rejected the extra work and authorized its cleanup.
+**Options:** Retain the separate review-policy extension as a merge prerequisite; remove it.
+**Chose removal because:** The accepted change is token access and its required workflow wiring. An unrelated gate limitation does not authorize another feature.
+**Where:** Stack review files restored to the pre-effort versions; broad Stack17 and TemperPaw510 withdrawn; own additions to Temper436 removed.
