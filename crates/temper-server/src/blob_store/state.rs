@@ -185,6 +185,17 @@ impl ServerState {
         // never pulls a large object into memory, it just stops pretending
         // small ones do not exist.
         let ceiling = usize::try_from(max_bytes).unwrap_or(usize::MAX);
+        // Hold the same blob I/O permit the object-store path takes. The read is
+        // bounded per caller but still buffered, so without the permit a burst
+        // of legacy reads is unbounded in aggregate — the ceiling limits one
+        // read, the semaphore limits how many happen at once.
+        let _permit = tokio::time::timeout(
+            super::BLOB_IO_QUEUE_TIMEOUT,
+            super::blob_io_semaphore().acquire_owned(),
+        )
+        .await
+        .map_err(|_| format!("legacy DB blob read for '{key}' timed out queueing for blob I/O"))?
+        .map_err(|error| format!("legacy DB blob I/O semaphore closed for '{key}': {error}"))?;
         let Some(bytes) = store
             .get_blob_if_size_at_most(key, ceiling)
             .await

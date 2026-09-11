@@ -670,3 +670,99 @@ and not disclosed.
 (`require_authenticated_request_context`, tested by
 `the_typed_authority_gate_admits_an_anonymous_fallback_route`) and
 `crates/temper-platform/src/tenant_api/apps.rs`.
+
+## D19: A revoked policy is disabled durably, and a shared statement is not pulled out from under another row
+
+**Decision:** On revoke, disable the durable policy row rather than saving the
+statement; and before removing a statement from the live text, check that no
+other `Active` Policy carries the same statement.
+
+**Came up because:** Round two of the panel read the reconciler I had just
+written. Removal reloaded the engine and then called `save_policy` with the
+revoked statement, so the durable row stayed enabled and the next boot loaded
+the revoked policy straight back in — the fix had a restart-shaped hole in it.
+Separately, two rows may carry identical text, and revoking one removed the
+text for both.
+
+**Options:** Delete the durable row; disable it; leave it and filter revoked
+rows at load. For the shared statement: refcount statements; compare text
+across Active rows at removal time; accept the collision as unlikely.
+
+**Chose disable because** it keeps the audit trail that a policy once existed
+and was withdrawn, which deletion destroys, while `load_policies_for_tenant`
+already honours the enabled flag. **Chose the comparison because** a refcount is
+state that can drift from the rows it counts, and the rows are the truth; the
+comparison is a scan of one entity type that happens only on revoke.
+
+**Where.** `crates/temper-platform/src/policy_activation.rs`
+(`another_active_policy_owns`, `disable_durable_record`).
+
+## D20: The visibility gate runs inside the closure walk, not after it
+
+**Decision:** Check each repository's visibility as the closure is walked, before
+its tree is materialized, instead of checking the assembled closure.
+
+**Came up because:** Both reviewers, independently: `resolve_genesis_app_closure`
+materializes every app's commit tree in order to read its manifest and find its
+dependencies. A check that ran on the finished closure had therefore already
+written every private repository in it to the cache. D17 said "before a single
+file is materialized" and the code did not do that — the check was in the right
+shape but the wrong place.
+
+**Options:** Read manifests without materializing (a second, dependency-only
+read path); check visibility inside the walk before each materialization; refuse
+the whole closure up front by resolving dependencies from entity state alone.
+
+**Chose the in-walk check because:** It is the only point where the repository is
+known and the content has not yet been read. A separate manifest read path is a
+second way to do the same thing, which is how the two read paths in ARN-479
+came to disagree. Resolving dependencies without the tree is not possible today:
+the manifest lives in the tree.
+
+**Where.** `crates/temper-platform/src/genesis_install.rs`
+(`resolve_genesis_app_closure` takes the audience;
+`refuse_unless_repository_is_public` replaces the post-hoc sweep).
+
+## D21: Whether an endpoint receives the caller's credential is the kernel's call, not the app's
+
+**Decision:** Remove the `ForwardsCredential` entity field read; the kernel's
+list of credential-carrying protocol modules decides, and an unrecognised module
+never forwards.
+
+**Came up because:** The panel noticed the runtime honoured a field the governed
+HttpEndpoint contract does not declare. So an app could have set
+`ForwardsCredential = true` on its own endpoint row and received callers'
+credentials, with no governed contract validating the claim.
+
+**Options:** Declare the field in the CSDL and the Create contract so it is
+governed; keep reading it but validate it somewhere; remove the read and let the
+kernel decide.
+
+**Chose kernel-decided because:** "Send me the user's credential" is not a
+privilege an application may assert about itself, so governing the assertion is
+weaker than removing the ability to make it. Declaring it in the contract would
+have made the escalation legitimate rather than impossible. The cost is that a
+new credential-carrying protocol needs a kernel change — which is the right
+amount of friction for this particular switch.
+
+**Where.** `crates/temper-server/src/http_endpoint.rs`.
+
+## D22: The legacy blob read holds the blob I/O permit
+
+**Decision:** Acquire the shared `blob_io_semaphore` around the legacy database
+read in `legacy_blob_stream`.
+
+**Came up because:** The panel observed the fallback buffering a bounded read
+without the permit the object-store path takes. The per-caller ceiling bounds
+one read; it says nothing about how many run at once, so a burst of legacy
+reads was unbounded in aggregate memory.
+
+**Options:** Leave it (legacy reads are rare); give the legacy path its own
+smaller semaphore; use the existing blob I/O semaphore.
+
+**Chose the existing semaphore because** the resource being protected is the
+same one — blob I/O against this process — and a second limiter would let the
+two paths add up to more than either intended. "Rare" is a property of today's
+data, not of the code.
+
+**Where.** `crates/temper-server/src/blob_store/state.rs`.

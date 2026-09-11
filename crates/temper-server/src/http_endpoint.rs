@@ -400,9 +400,14 @@ pub fn route_from_entity_fields(id: &str, fields: &serde_json::Value) -> Option<
     // opaque to the kernel and is the app's to resolve. Withholding it protects
     // nothing and makes every authenticated request arrive as anonymous.
     //
-    // Same shape as the pack-size defaults below: keyed on the integration that
-    // implements the protocol, and overridable per endpoint.
-    let credential_carrying_protocol = matches!(
+    // Decided by the kernel, NOT by the entity. An earlier version read a
+    // `ForwardsCredential` field off the row, which the governed HttpEndpoint
+    // contract does not declare: an app could have granted itself the caller's
+    // credential by writing a field nothing validated. "Send me the user's
+    // credential" is not a privilege an app may assert about itself, so the
+    // list of protocols whose credential the kernel cannot interpret lives
+    // here, in the kernel, and an unrecognised module never forwards anything.
+    let forwards_credential = matches!(
         integration_module.as_str(),
         "git_refs_advertise"
             | "git_upload_pack"
@@ -411,10 +416,6 @@ pub fn route_from_entity_fields(id: &str, fields: &serde_json::Value) -> Option<
             | "github_rest_refs"
             | "github_rest_pulls"
     );
-    let forwards_credential = obj
-        .get("ForwardsCredential")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(credential_carrying_protocol);
     let timeout_secs = obj
         .get("TimeoutSecs")
         .and_then(|v| v.as_u64())

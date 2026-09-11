@@ -1539,56 +1539,55 @@ pub async fn export_genesis_registry_bundle(
     .await
 }
 
-/// Refuse the export unless every repository in the closure is public.
+/// Refuse unless this repository is public.
 ///
-/// The anonymous bundle route exists so an installing kernel with no registry
-/// credential can fetch a public app. The bundle it returns is the app's whole
-/// closure, so the visibility question has to be asked of every repository in
-/// it. Asking only about the root repository turned a public wrapper into an
-/// anonymous read of whatever private apps it depends on.
-async fn refuse_unless_every_repository_is_public(
+/// Called for each app as the closure is walked, BEFORE its tree is
+/// materialized. An app's bundle is its whole dependency closure, so "is this
+/// public?" is a question about every repository in it — and the check has to
+/// happen before the content is read, not after: resolving the closure
+/// materializes each tree in order to read its manifest, so a check that ran
+/// afterwards would already have written a private repository to disk.
+async fn refuse_unless_repository_is_public(
     state: &ServerState,
     tenant: &TenantId,
-    closure: &[GenesisAppBundle],
+    app: &GenesisAppBundle,
 ) -> Result<(), String> {
-    for app in closure {
-        if !state
-            .ensure_entity_loaded(tenant, "Repository", &app.repository_id)
-            .await
-        {
-            return Err(format!(
-                "Genesis bundle refused: repository {} for {}/{} could not be read",
-                app.repository_id, app.owner, app.name
-            ));
-        }
-        let repository = state
-            .get_tenant_entity_state(tenant, "Repository", &app.repository_id)
-            .await
-            .map_err(|error| {
-                format!(
-                    "Genesis bundle refused: repository {} could not be read: {error}",
-                    app.repository_id
-                )
-            })?;
-        let visibility = repository
-            .state
-            .fields
-            .get("Visibility")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if visibility != "public" {
-            tracing::warn!(
-                tenant = %tenant,
-                repository_id = %app.repository_id,
-                app = %app.name,
-                visibility,
-                "anonymous Genesis bundle refused: a repository in the closure is not public"
-            );
-            return Err(format!(
-                "Genesis bundle refused: {}/{} is not public",
-                app.owner, app.name
-            ));
-        }
+    if !state
+        .ensure_entity_loaded(tenant, "Repository", &app.repository_id)
+        .await
+    {
+        return Err(format!(
+            "Genesis bundle refused: repository {} for {}/{} could not be read",
+            app.repository_id, app.owner, app.name
+        ));
+    }
+    let repository = state
+        .get_tenant_entity_state(tenant, "Repository", &app.repository_id)
+        .await
+        .map_err(|error| {
+            format!(
+                "Genesis bundle refused: repository {} could not be read: {error}",
+                app.repository_id
+            )
+        })?;
+    let visibility = repository
+        .state
+        .fields
+        .get("Visibility")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if visibility != "public" {
+        tracing::warn!(
+            tenant = %tenant,
+            repository_id = %app.repository_id,
+            app = %app.name,
+            visibility,
+            "anonymous Genesis bundle refused: a repository in the closure is not public"
+        );
+        return Err(format!(
+            "Genesis bundle refused: {}/{} is not public",
+            app.owner, app.name
+        ));
     }
     Ok(())
 }
@@ -1623,12 +1622,7 @@ pub async fn export_genesis_registry_bundle_for(
         root.version_hash.trim_start_matches('@')
     );
     let cache_root = genesis_cache_root(&platform.server, &app_ref);
-    let closure = resolve_genesis_app_closure(&platform.server, &tenant, root).await?;
-    if audience == BundleAudience::Anonymous {
-        // Checked for the entire closure before a single file is materialized:
-        // refusing halfway would already have read the private content.
-        refuse_unless_every_repository_is_public(&platform.server, &tenant, &closure).await?;
-    }
+    let closure = resolve_genesis_app_closure(&platform.server, &tenant, root, audience).await?;
     if closure.len() > MAX_GENESIS_BUNDLE_APPS {
         return Err(format!(
             "Genesis bundle closure contains {} apps; budget is {MAX_GENESIS_BUNDLE_APPS}",
@@ -1722,6 +1716,7 @@ async fn resolve_genesis_app_closure(
     state: &ServerState,
     tenant: &TenantId,
     root: GenesisAppBundle,
+    audience: BundleAudience,
 ) -> Result<Vec<GenesisAppBundle>, String> {
     let mut stack = vec![root];
     let mut admission = GenesisClosureAdmission::default();
@@ -1731,6 +1726,11 @@ async fn resolve_genesis_app_closure(
     while let Some(app) = stack.pop() {
         if !admission.admit(&app)? {
             continue;
+        }
+        if audience == BundleAudience::Anonymous {
+            // Before materialize_commit_tree, which writes this repository's
+            // content to the cache in order to read its manifest.
+            refuse_unless_repository_is_public(state, tenant, &app).await?;
         }
         let cache_root = genesis_cache_root(
             state,

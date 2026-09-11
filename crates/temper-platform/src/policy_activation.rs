@@ -121,7 +121,76 @@ async fn apply_policy_entity(state: &PlatformState, tenant: &TenantId, entity_id
         return;
     }
 
+    if !should_be_in_force && another_active_policy_owns(state, tenant, entity_id, &statement).await
+    {
+        // Two rows can carry the same statement. Removing the text because one
+        // was revoked would silently un-grant the other, which is still Active
+        // and still approved. Drop this row's durable record and leave the
+        // engine alone.
+        disable_durable_record(state, tenant, entity_id).await;
+        tracing::info!(
+            tenant = %tenant,
+            entity_id,
+            "revoked Policy shares its statement with another Active policy; \
+             the statement stays in force"
+        );
+        return;
+    }
+
     set_statement_in_force(state, tenant, entity_id, &statement, should_be_in_force).await;
+}
+
+/// Does a different `Policy` row, still `Active`, carry this same statement?
+async fn another_active_policy_owns(
+    state: &PlatformState,
+    tenant: &TenantId,
+    entity_id: &str,
+    statement: &str,
+) -> bool {
+    for other_id in state.server.list_entity_ids_lazy(tenant, "Policy").await {
+        if other_id == entity_id {
+            continue;
+        }
+        let Ok(other) = state
+            .server
+            .get_tenant_entity_state(tenant, "Policy", &other_id)
+            .await
+        else {
+            continue;
+        };
+        if other.state.status != "Active" {
+            continue;
+        }
+        let other_statement = other
+            .state
+            .fields
+            .get("cedar_statement")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        if other_statement == statement {
+            return true;
+        }
+    }
+    false
+}
+
+/// Stop a revoked policy's durable row from being reinstalled at the next boot.
+async fn disable_durable_record(state: &PlatformState, tenant: &TenantId, entity_id: &str) {
+    let Some(store) = state.server.policy_store() else {
+        return;
+    };
+    if let Err(error) = store
+        .toggle_policy_enabled(tenant.as_str(), entity_id, false)
+        .await
+    {
+        tracing::error!(
+            tenant = %tenant,
+            entity_id,
+            error = %error,
+            "revoked Policy could not be disabled durably; the next boot may reinstall it"
+        );
+    }
 }
 
 /// Add or remove one statement from the tenant's live policy text.
@@ -169,10 +238,20 @@ async fn set_statement_in_force(
     // process would enforce a rule that no restart would reproduce, so put the
     // engine back rather than leaving the two disagreeing.
     if let Some(store) = state.server.policy_store() {
-        match store
-            .save_policy(tenant_str, entity_id, statement, WRITER)
-            .await
-        {
+        // Installing writes the row; revoking DISABLES it. Saving the statement
+        // on the way out would leave an enabled durable policy that the next
+        // boot loads straight back in, so a revoked policy would come back to
+        // life on restart.
+        let persisted = if in_force {
+            store
+                .save_policy(tenant_str, entity_id, statement, WRITER)
+                .await
+        } else {
+            store
+                .toggle_policy_enabled(tenant_str, entity_id, false)
+                .await
+        };
+        match persisted {
             Ok(changed) => {
                 if changed {
                     record_policy_change(&state.server, tenant_str, entity_id, WRITER);

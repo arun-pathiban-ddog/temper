@@ -611,14 +611,22 @@ async fn a_protocol_route_that_forwards_credentials_keeps_the_authorization_head
 }
 
 #[tokio::test]
-async fn a_forwarding_route_never_hands_a_guest_a_kernel_bearer_token() {
-    // The opt-in exists for a credential the kernel cannot interpret — a
-    // GitToken presented as HTTP Basic. A Bearer token is the opposite: it is
-    // kernel authority, reusable against every route, and must never reach a
-    // WASM guest, whatever the route declared. Scoping the exception by route
-    // alone would have let a caller hand a live kernel key to the git module
-    // just by presenting it to a git URL.
+async fn a_forwarding_route_never_hands_a_guest_a_resolved_kernel_credential() {
+    // The opt-in exists for a credential the KERNEL CANNOT INTERPRET, which the
+    // app must resolve for itself. If the kernel just resolved it, it is kernel
+    // authority -- reusable against every route -- and must not reach a guest
+    // whatever the route declared.
+    //
+    // The first version of this rule keyed off the scheme and stripped every
+    // Bearer. That was wrong in the other direction: a GitToken presented as
+    // `Bearer <token>` is not kernel authority either, and stripping it broke
+    // exactly the callers the exception exists for. What matters is whether the
+    // kernel accepted it, not how it was spelled.
     let state = PlatformState::new(None);
+    crate::bootstrap::bootstrap_agent_specs(&state, "default", false, &BTreeMap::new());
+    crate::bootstrap::bootstrap_operator_credential(&state, "tenant-key", "default")
+        .await
+        .expect("operator credential bootstrap should succeed");
     state
         .server
         .http_endpoint_tables
@@ -627,10 +635,11 @@ async fn a_forwarding_route_never_hands_a_guest_a_kernel_bearer_token() {
         .replace(vec![protocol_route_forwarding(false, true)])
         .await;
 
-    let response = app(state)
+    let response = app(state.clone())
         .oneshot(
             HttpRequest::get("/repo.git/info/refs")
-                .header("authorization", "Bearer a-kernel-api-key")
+                .header("authorization", "Bearer tenant-key")
+                .header("x-tenant-id", "default")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -642,8 +651,31 @@ async fn a_forwarding_route_never_hands_a_guest_a_kernel_bearer_token() {
         .unwrap();
     assert_eq!(
         String::from_utf8(body.to_vec()).unwrap(),
-        "default:Customer:anonymous:false",
-        "a Bearer credential is kernel authority and must be stripped even on a forwarding route"
+        "default:Agent:operator:false",
+        "a credential the kernel resolved is kernel authority and is stripped"
+    );
+
+    let unresolved = app(state)
+        .oneshot(
+            HttpRequest::get("/repo.git/info/refs")
+                .header(
+                    "authorization",
+                    "Bearer a-git-token-the-kernel-does-not-know",
+                )
+                .header("x-tenant-id", "default")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unresolved.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(unresolved.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(body.to_vec()).unwrap(),
+        "default:Customer:anonymous:true",
+        "a credential the kernel could not interpret is the app's to resolve, and reaches it"
     );
 }
 
