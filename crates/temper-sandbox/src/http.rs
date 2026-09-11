@@ -176,7 +176,6 @@ pub async fn temper_request_bytes(
     method: Method,
     path: &str,
     body: Vec<u8>,
-    content_type: &str,
 ) -> Result<Value, String> {
     let url = format!("{base_url}{path}");
     let internal_credential = identity
@@ -189,7 +188,7 @@ pub async fn temper_request_bytes(
     let mut request = http
         .request(method, &url)
         .header("X-Tenant-Id", request_tenant)
-        .header("Content-Type", content_type);
+        .header("Content-Type", "application/wasm");
 
     if let Some(credential) = internal_credential.as_ref() {
         request = request.header(

@@ -312,8 +312,10 @@ async fn denial_without_elicitation_capability_passes_through() {
         let result = tool_result_json(&response);
         assert_eq!(result["status"], "authorization_denied");
         assert_eq!(result["decision_id"], "PD-test123");
-        assert_eq!(result["approval"], "pending human decision");
-        assert_eq!(result["elicitation_status"], "unavailable");
+        assert!(
+            result.get("approval").is_none(),
+            "denial must pass through untouched: {result:#}"
+        );
         drop(client);
     };
 
@@ -398,8 +400,10 @@ async fn denial_with_elicitation_human_declines_leaves_pending() {
         assert_eq!(response["id"], 2);
         let result = tool_result_json(&response);
         assert_eq!(result["status"], "authorization_denied");
-        assert_eq!(result["approval"], "pending human decision");
-        assert_eq!(result["elicitation_status"], "declined");
+        assert!(
+            result.get("approval").is_none(),
+            "a decline must leave the denial untouched: {result:#}"
+        );
         drop(client);
     };
 
@@ -435,14 +439,7 @@ async fn client_disconnect_mid_elicitation_ends_promptly_without_resolution() {
     })
     .await
     .expect("session ends promptly after client disconnect");
-    let error = server_result.expect_err("closed output reports its write failure");
-    assert_eq!(
-        error
-            .downcast_ref::<std::io::Error>()
-            .expect("I/O error")
-            .kind(),
-        std::io::ErrorKind::BrokenPipe,
-    );
+    server_result.expect("server loop");
 
     assert!(
         backend.approve.lock().expect("approve lock").is_none(),
@@ -450,6 +447,3 @@ async fn client_disconnect_mid_elicitation_ends_promptly_without_resolution() {
     );
     assert!(backend.deny.lock().expect("deny lock").is_none());
 }
-
-#[path = "elicit_pending_tests.rs"]
-mod pending_tests;

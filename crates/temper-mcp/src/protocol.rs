@@ -70,12 +70,6 @@ pub(super) async fn dispatch_json_value(ctx: &mut RuntimeContext, raw: Value) ->
                 .params
                 .pointer("/capabilities/elicitation")
                 .is_some_and(|value| !value.is_null());
-            tracing::info!(
-                process_id = std::process::id(),
-                version = env!("CARGO_PKG_VERSION"),
-                elicitation_availability = %crate::elicit_status::availability(ctx),
-                "MCP approval transport initialized"
-            );
 
             // Initialize OTS trajectory capture after handshake.
             ctx.init_trajectory();
@@ -232,7 +226,6 @@ ENTITY OPERATIONS:\n\
 \x20 await temper.create(tenant, entity_type, fields) -> create entity\n\
 \x20 await temper.action(tenant, entity_type, entity_id, action_name, body) -> invoke action\n\
 \x20 await temper.patch(tenant, entity_type, entity_id, fields) -> update fields\n\
-\x20 await temper.put_file_text(tenant, file_id, content, content_type) -> PUT File $value; UTF-8 text up to 128 KiB (complete execute frame remains limited to 1 MiB; build large content using adjacent literals on short source lines), application/json | text/plain | text/markdown\n\
 \n\
 DEVELOPER:\n\
 \x20 await temper.submit_specs(tenant, {\"entity.ioa.toml\": \"...\", \"model.csdl.xml\": \"...\"}) -> submit specs\n\
@@ -264,8 +257,8 @@ COMPILE_WASM: Use compile_wasm(tenant, module_name, rust_source) to compile Rust
 Source should use `temper_wasm_sdk::prelude::*` and the `temper_module!` macro.\n\
 \n\
 CEDAR GOVERNANCE: actions may be denied by Cedar policy. Denied actions create\n\
-pending decisions. A capable MCP client presents human approval inline.\n\
-The elicitation_status field explains unavailable, timed-out or unanswered approval. Retry only after a human resolves the decision.\n\
+decisions for human approval in the Observe UI or via `temper decide` CLI.\n\
+Use poll_decision(tenant, decision_id) to wait for the human decision.\n\
 OTS FLUSH: `await temper.flush_trajectory()` uploads a mid-session OTS snapshot\n\
 without ending the session.\n\
 You cannot approve or set policies — only humans can do that.";

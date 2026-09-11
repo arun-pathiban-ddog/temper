@@ -338,6 +338,3 @@ async fn finalize_trajectory_retries_retryable_ots_upload_failure() {
 
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
 }
-
-#[path = "runtime_transport_test.rs"]
-mod transport_tests;

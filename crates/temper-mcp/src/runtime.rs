@@ -621,86 +621,54 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let (out_tx, out_rx) = mpsc::unbounded_channel::<Value>();
-    let mut writer_task = tokio::spawn(write_outbound(out_rx, writer));
+    let writer_task = tokio::spawn(write_outbound(out_rx, writer));
+
     let pending = PendingClientRequests::default();
     ctx.requester = Some(ClientRequester::new(out_tx.clone(), pending.clone()));
-    let (in_tx, mut in_rx) = mpsc::channel::<Value>(MAX_PENDING_CLIENT_MESSAGES);
+
+    let (in_tx, mut in_rx) = mpsc::unbounded_channel::<Value>();
     let reader_task = tokio::spawn(read_inbound(reader, in_tx, pending, out_tx.clone()));
 
-    let mut writer_result = None;
-    let dispatch_result = tokio::select! {
-        result = &mut writer_task => {
-            writer_result = Some(result);
-            Ok(())
+    while let Some(message) = in_rx.recv().await {
+        if let Some(response) = dispatch_json_value(&mut ctx, message).await
+            && out_tx.send(response).is_err()
+        {
+            break;
         }
-        result = dispatch_client_messages(&mut ctx, &mut in_rx, &out_tx) => result,
-    };
-    // A failed output must not wait for another input frame to finish shutdown.
-    let abort_reader = writer_result.is_some() || dispatch_result.is_err();
-    if abort_reader {
-        reader_task.abort();
     }
-    let reader_result = reader_task.await;
-    ctx.requester = None;
-    drop(out_tx);
-    let writer_result = match writer_result {
-        Some(result) => result,
-        None => writer_task.await,
-    };
+
+    // Finalize and upload OTS trajectory on session close.
     ctx.finalize_trajectory().await;
 
-    match reader_result {
-        Err(error) if abort_reader && error.is_cancelled() => {}
-        result => result??,
-    }
-    writer_result??;
-    dispatch_result
-}
+    // Drop every outbound sender (the requester holds one) so the writer
+    // drains remaining output and exits, then stop the reader.
+    ctx.requester = None;
+    drop(out_tx);
+    let _ = writer_task.await;
+    reader_task.abort();
 
-/// Only ordinary client requests queue; their replies remain sequential.
-async fn dispatch_client_messages(
-    ctx: &mut RuntimeContext,
-    inbound: &mut mpsc::Receiver<Value>,
-    outbound: &mpsc::UnboundedSender<Value>,
-) -> Result<()> {
-    while let Some(message) = inbound.recv().await {
-        if let Some(response) = dispatch_json_value(ctx, message).await {
-            outbound.send(response)?;
-        }
-    }
     Ok(())
-}
-
-const MAX_PENDING_CLIENT_MESSAGES: usize = 16;
-
-/// Also fails elicitation waiters when a transport task panics or is aborted.
-struct PendingDisconnect(PendingClientRequests);
-impl Drop for PendingDisconnect {
-    fn drop(&mut self) {
-        self.0.fail_all();
-    }
 }
 
 /// Read frames from the client, routing responses to pending server→client
 /// requests and forwarding requests/notifications to the dispatch loop.
 async fn read_inbound<R: AsyncBufRead + Unpin>(
     mut reader: R,
-    inbound: mpsc::Sender<Value>,
+    inbound: mpsc::UnboundedSender<Value>,
     pending: PendingClientRequests,
     outbound: mpsc::UnboundedSender<Value>,
-) -> Result<()> {
-    let _disconnect = PendingDisconnect(pending.clone());
+) {
     loop {
-        let buf = match read_stdio_frame(&mut reader).await? {
-            StdioFrame::Eof => break,
-            StdioFrame::TooLarge => {
+        let buf = match read_stdio_frame(&mut reader).await {
+            Ok(StdioFrame::Eof) | Err(_) => break,
+            Ok(StdioFrame::TooLarge) => {
                 tracing::warn!(
                     limit = MAX_STDIO_LINE_BYTES,
                     "mcp.stdio.frame_too_large: dropped oversized frame"
                 );
                 continue;
             }
-            StdioFrame::Line(buf) => buf,
+            Ok(StdioFrame::Line(buf)) => buf,
         };
         let line = match std::str::from_utf8(&buf) {
             Ok(text) => text.trim(),
@@ -731,32 +699,37 @@ async fn read_inbound<R: AsyncBufRead + Unpin>(
             }
             continue;
         }
-        // Never await capacity here: the next frame may be the human response
-        // that releases dispatch. Overflow fails explicitly instead of growing
-        // memory or hiding an approval behind the queued requests.
-        match inbound.try_send(message) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Closed(_)) => break,
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                bail!("MCP pending client request limit exceeded ({MAX_PENDING_CLIENT_MESSAGES})");
-            }
+        if inbound.send(message).is_err() {
+            break;
         }
     }
-    Ok(())
+
+    // The client stream ended: fail any in-flight server→client request so
+    // a pending elicitation returns immediately (decision left pending)
+    // instead of waiting out its timeout.
+    pending.fail_all();
 }
 
 /// Serialize outbound JSON-RPC messages as newline-delimited frames.
 async fn write_outbound<W: AsyncWrite + Unpin>(
     mut rx: mpsc::UnboundedReceiver<Value>,
     mut writer: W,
-) -> Result<()> {
+) {
     while let Some(message) = rx.recv().await {
-        let encoded = serde_json::to_string(&message)?;
-        writer.write_all(encoded.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
-        writer.flush().await?;
+        let encoded = match serde_json::to_string(&message) {
+            Ok(encoded) => encoded,
+            Err(error) => {
+                tracing::warn!(%error, "mcp.stdio.encode_failed: dropped message");
+                continue;
+            }
+        };
+        if writer.write_all(encoded.as_bytes()).await.is_err()
+            || writer.write_all(b"\n").await.is_err()
+            || writer.flush().await.is_err()
+        {
+            break;
+        }
     }
-    Ok(())
 }
 
 #[cfg(test)]
