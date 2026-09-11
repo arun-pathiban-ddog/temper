@@ -41,6 +41,18 @@ async fn whoami(
     )
 }
 
+/// Reports whether the middleware handed the handler an authenticated context.
+/// The bundle route has to serve both: anonymous callers with no context, and
+/// authenticated ones whose authority the handler needs in order to apply Cedar.
+async fn bundle_probe(context: Option<Extension<AuthenticatedRequestContext>>) -> String {
+    match context {
+        Some(Extension(context)) => {
+            format!("authenticated:{}", context.security_context().principal.id)
+        }
+        None => "anonymous".to_string(),
+    }
+}
+
 fn protocol_route(requires_auth: bool) -> temper_server::http_endpoint::HttpEndpointRoute {
     protocol_route_forwarding(requires_auth, false)
 }
@@ -83,6 +95,10 @@ fn app(state: PlatformState) -> Router {
         .route("/api/specs", get(ok_handler))
         .route("/whoami", get(whoami))
         .route("/repo.git/{*path}", get(whoami).post(whoami))
+        .route(
+            "/api/genesis/apps/{owner}/{name}/{hash}/bundle",
+            get(bundle_probe),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             bearer_auth_check,
@@ -658,5 +674,66 @@ async fn a_protocol_route_without_the_opt_in_still_loses_the_credential() {
         String::from_utf8(body.to_vec()).unwrap(),
         "default:Customer:anonymous:false",
         "ARN-208 still holds for every endpoint that has not opted in"
+    );
+}
+
+#[tokio::test]
+async fn the_bundle_route_serves_anonymous_callers_without_a_credential() {
+    // An installing kernel holds no registry credential and sends only
+    // X-Tenant-Id. Before the anonymous fallback existed it was turned away at
+    // the edge, which made installing a public app impossible.
+    let state = PlatformState::new(None);
+    let response = app(state)
+        .oneshot(
+            HttpRequest::get("/api/genesis/apps/acme/widget/deadbeef/bundle")
+                .header("x-tenant-id", "default")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(body.to_vec()).unwrap(),
+        "anonymous",
+        "no credential means no context, so the handler applies the anonymous rules"
+    );
+}
+
+#[tokio::test]
+async fn the_bundle_route_still_resolves_a_credential_when_one_is_presented() {
+    // The regression this exists for: the route was first made anonymous by
+    // listing it as a public kernel request, and that classification is checked
+    // BEFORE credential resolution and returns immediately. An authenticated
+    // caller asking for a PRIVATE bundle was therefore treated as anonymous and
+    // refused -- their own credential silently discarded. Serving anonymous
+    // callers must not cost authenticated ones their authority.
+    let state = PlatformState::new(None);
+    crate::bootstrap::bootstrap_agent_specs(&state, "default", false, &BTreeMap::new());
+    crate::bootstrap::bootstrap_operator_credential(&state, "tenant-key", "default")
+        .await
+        .expect("operator credential bootstrap should succeed");
+
+    let response = app(state)
+        .oneshot(
+            HttpRequest::get("/api/genesis/apps/acme/widget/deadbeef/bundle")
+                .header("authorization", "Bearer tenant-key")
+                .header("x-tenant-id", "default")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(body.to_vec()).unwrap(),
+        "authenticated:operator",
+        "a presented credential must still reach the handler as typed authority"
     );
 }

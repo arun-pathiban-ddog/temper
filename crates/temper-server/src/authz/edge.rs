@@ -69,14 +69,24 @@ pub fn is_public_kernel_request(method: &Method, path: &str) -> bool {
     }
     (matches!(*method, Method::GET | Method::POST) && path.starts_with("/webhooks/"))
         || (method == Method::GET && path.starts_with("/genesis/"))
-        // A pinned Genesis app bundle is the same content the git surface
-        // already serves anonymously. The handler still refuses unless the
-        // backing repository is public; reaching it is what this allows, so an
-        // installing kernel that holds no registry credential can fetch a
-        // public app instead of being turned away at the edge.
-        || (method == Method::GET
-            && path.starts_with("/api/genesis/apps/")
-            && path.ends_with("/bundle"))
+}
+
+/// Routes that serve an anonymous caller, but must still resolve a credential
+/// when one is presented.
+///
+/// This is deliberately NOT `is_public_kernel_request`. That classification is
+/// checked before credential resolution and returns immediately, so a route
+/// listed there ignores a credential rather than merely not requiring one —
+/// which for the bundle route meant an authenticated caller asking for a
+/// private bundle was treated as anonymous and refused. A route here is tried
+/// only after resolution has already had its chance.
+///
+/// A pinned Genesis app bundle is the same content the git surface already
+/// serves anonymously, so an installing kernel that holds no registry
+/// credential can fetch a public app. The handler refuses unless every
+/// repository in the app's closure is public.
+pub fn allows_anonymous_fallback(method: &Method, path: &str) -> bool {
+    method == Method::GET && path.starts_with("/api/genesis/apps/") && path.ends_with("/bundle")
 }
 
 /// Reject protected kernel routes that lack authenticated typed authority.

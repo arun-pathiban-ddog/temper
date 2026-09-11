@@ -6,7 +6,8 @@ pub mod policy_persistence;
 pub mod wasm_gate;
 
 pub use edge::{
-    is_public_kernel_request, require_authenticated_request_context, strip_inbound_identity_headers,
+    allows_anonymous_fallback, is_public_kernel_request, require_authenticated_request_context,
+    strip_inbound_identity_headers,
 };
 pub use temper_authz::AuthenticatedRequestContext;
 

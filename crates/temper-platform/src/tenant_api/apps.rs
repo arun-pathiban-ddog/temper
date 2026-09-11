@@ -232,39 +232,27 @@ async fn anonymous_public_bundle(
     name: &str,
     hash: &str,
 ) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
-    let tenant_id = super::auth::validate_tenant_id(tenant)?;
-    let repository_id = format!("rp-{owner}-{name}");
-    if !state
-        .server
-        .ensure_entity_loaded(&tenant_id, "Repository", &repository_id)
-        .await
-    {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    let repository = state
-        .server
-        .get_tenant_entity_state(&tenant_id, "Repository", &repository_id)
-        .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let visibility = repository
-        .state
-        .fields
-        .get("Visibility")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    if visibility != "public" {
-        tracing::warn!(
-            tenant,
-            repository_id,
-            visibility,
-            "anonymous Genesis bundle read refused: repository is not public"
-        );
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    match crate::genesis_install::export_genesis_registry_bundle(state, tenant, owner, name, hash)
-        .await
+    // Validate the tenant name, then let the exporter decide what an anonymous
+    // caller may see. The visibility question belongs there because the answer
+    // is about the whole dependency closure, not about the app that was named:
+    // an earlier version of this checked only the root repository, so a public
+    // app that depended on a private one exported the private one too.
+    super::auth::validate_tenant_id(tenant)?;
+    match crate::genesis_install::export_genesis_registry_bundle_for(
+        state,
+        tenant,
+        owner,
+        name,
+        hash,
+        crate::genesis_install::BundleAudience::Anonymous,
+    )
+    .await
     {
         Ok(bundle) => Ok((StatusCode::OK, Json(serde_json::json!(bundle)))),
+        Err(error) if error.contains("refused") => {
+            // Do not tell an anonymous caller whether a private app exists.
+            Err(StatusCode::UNAUTHORIZED)
+        }
         Err(error) if error.contains("not found") => Ok((
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": error })),

@@ -1510,12 +1510,102 @@ impl GenesisClosureAdmission {
     }
 }
 
+/// Who is asking for a bundle, and therefore what the closure may contain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BundleAudience {
+    /// A caller the kernel authenticated. Cedar governs what it may read.
+    Authenticated,
+    /// No credential was presented. Every repository in the closure must be
+    /// public, not merely the one that was named.
+    Anonymous,
+}
+
+/// Export a pinned app bundle for an authenticated caller.
 pub async fn export_genesis_registry_bundle(
     platform: &PlatformState,
     registry_tenant: &str,
     owner: &str,
     name: &str,
     version_hash: &str,
+) -> Result<GenesisRegistryBundleResponse, String> {
+    export_genesis_registry_bundle_for(
+        platform,
+        registry_tenant,
+        owner,
+        name,
+        version_hash,
+        BundleAudience::Authenticated,
+    )
+    .await
+}
+
+/// Refuse the export unless every repository in the closure is public.
+///
+/// The anonymous bundle route exists so an installing kernel with no registry
+/// credential can fetch a public app. The bundle it returns is the app's whole
+/// closure, so the visibility question has to be asked of every repository in
+/// it. Asking only about the root repository turned a public wrapper into an
+/// anonymous read of whatever private apps it depends on.
+async fn refuse_unless_every_repository_is_public(
+    state: &ServerState,
+    tenant: &TenantId,
+    closure: &[GenesisAppBundle],
+) -> Result<(), String> {
+    for app in closure {
+        if !state
+            .ensure_entity_loaded(tenant, "Repository", &app.repository_id)
+            .await
+        {
+            return Err(format!(
+                "Genesis bundle refused: repository {} for {}/{} could not be read",
+                app.repository_id, app.owner, app.name
+            ));
+        }
+        let repository = state
+            .get_tenant_entity_state(tenant, "Repository", &app.repository_id)
+            .await
+            .map_err(|error| {
+                format!(
+                    "Genesis bundle refused: repository {} could not be read: {error}",
+                    app.repository_id
+                )
+            })?;
+        let visibility = repository
+            .state
+            .fields
+            .get("Visibility")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if visibility != "public" {
+            tracing::warn!(
+                tenant = %tenant,
+                repository_id = %app.repository_id,
+                app = %app.name,
+                visibility,
+                "anonymous Genesis bundle refused: a repository in the closure is not public"
+            );
+            return Err(format!(
+                "Genesis bundle refused: {}/{} is not public",
+                app.owner, app.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Export a pinned app bundle, bounded by who is asking.
+///
+/// An app's bundle is its whole dependency closure, so "is this app public?" is
+/// a question about every repository in that closure, not about the one the
+/// caller named. A public app that depends on a private one must not become a
+/// way to read the private one anonymously.
+pub async fn export_genesis_registry_bundle_for(
+    platform: &PlatformState,
+    registry_tenant: &str,
+    owner: &str,
+    name: &str,
+    version_hash: &str,
+    audience: BundleAudience,
 ) -> Result<GenesisRegistryBundleResponse, String> {
     let tenant = TenantId::new(registry_tenant);
     let root = resolve_genesis_app_by_ref(
@@ -1534,6 +1624,11 @@ pub async fn export_genesis_registry_bundle(
     );
     let cache_root = genesis_cache_root(&platform.server, &app_ref);
     let closure = resolve_genesis_app_closure(&platform.server, &tenant, root).await?;
+    if audience == BundleAudience::Anonymous {
+        // Checked for the entire closure before a single file is materialized:
+        // refusing halfway would already have read the private content.
+        refuse_unless_every_repository_is_public(&platform.server, &tenant, &closure).await?;
+    }
     if closure.len() > MAX_GENESIS_BUNDLE_APPS {
         return Err(format!(
             "Genesis bundle closure contains {} apps; budget is {MAX_GENESIS_BUNDLE_APPS}",

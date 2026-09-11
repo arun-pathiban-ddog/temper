@@ -515,3 +515,122 @@ is exactly the confusion D7 exists to end. One caller, one line changed.
 
 **Where.** `crates/temper-server/src/state/dispatch/wasm.rs` and its call site in
 `crates/temper-server/src/router.rs`.
+
+## D14: The credential opt-in releases one header, not the denylist
+
+**Decision:** `forwards_credential` exempts only `authorization` from the guest
+credential denylist; the other fifteen entries stay enforced on those routes.
+
+**Came up because:** The review panel read the opt-in as written —
+`forwards_credential || !is_credential_header(name)` — which released every
+forbidden header on an opted-in route: session cookie, `x-api-key`, and the
+forwarded-auth family (Google IAP, Cloudflare Access, AWS ALB OIDC).
+
+**Options:** Leave it, on the grounds that Genesis is the only opted-in app;
+list per route which headers it may receive; exempt exactly the one header the
+opt-in exists for.
+
+**Chose the single exemption because:** "Leave it" makes the blast radius of a
+future opt-in the entire denylist, and the denylist is defensive precisely
+against deployments nobody has built yet. A per-route list is configuration
+nobody would keep correct. A git module needs the GitToken the client presented
+and nothing else, so one header is the whole requirement.
+
+**Where.** `crates/temper-server/src/router.rs`, tested by
+`the_forwarding_opt_in_releases_only_the_protocol_credential`.
+
+## D15: A Bearer credential is never forwarded, whatever the route declares
+
+**Decision:** Scope the forwarding exception by credential scheme as well as by
+route: a `Bearer` credential is stripped even on a route that opted in.
+
+**Came up because:** The opt-in trusted the route declaration alone, so a caller
+who presented a kernel API key to a git URL would have had that key forwarded to
+the WASM guest — a reusable kernel credential in guest hands, the exact thing
+ARN-208 exists to prevent.
+
+**Options:** Trust the route (a git client only ever sends Basic); have the guest
+reject Bearer itself; refuse to forward a Bearer at the kernel boundary.
+
+**Chose the kernel boundary because:** What a client "only ever" sends is the
+attacker's choice, not ours. Leaving it to the guest puts a security boundary
+inside the component the boundary protects the system from. The exception exists
+for credentials the kernel cannot interpret; a Bearer token is one it can, so it
+is precisely the case the exception should not cover.
+
+**Where.** `crates/temper-platform/src/bearer_auth.rs`
+(`credential_is_kernel_bearer`), tested by
+`a_forwarding_route_never_hands_a_guest_a_kernel_bearer_token`.
+
+## D16: The policy consumer is a reconciler, not an activate hook
+
+**Decision:** Re-read the `Policy` row on every change and make the engine match
+it — install when `Active`, remove otherwise — plus a sweep on startup and after
+a broadcast lag, and a rollback if the durable write fails.
+
+**Came up because:** The panel found three holes in the activate-only version:
+revoking a policy left its statement in force; a lagged broadcast dropped an
+approved policy with only a warning; and rows already `Active` before the task
+subscribed were never installed at all. All three are the ARN-494 failure —
+state and enforcement disagreeing — pointing in different directions.
+
+**Options:** Patch the three cases individually onto the activate hook; rebuild
+the tenant's policy set from scratch on every change; make the consumer a
+reconciler that applies one row at a time and sweeps when it may have missed
+something.
+
+**Chose the reconciler because:** The three bugs are one bug — the code assumed
+an event stream is a state description. Rebuilding from scratch each time would
+discard policy text that has no `Policy` row behind it (the bootstrap permits),
+so there is no complete source to rebuild from. Applying a row and sweeping on
+doubt converges without needing one.
+
+**What it does not cover.** The sweep can only visit tenants whose policy text
+this process already tracks, because the kernel has no tenant enumeration. A
+tenant outside that set still converges through its own events; the sweep adds
+recovery, not discovery. Recorded rather than hidden.
+
+**On the durable write.** `persist_and_activate_policy` returns `bool` for three
+different situations — no store configured, nothing changed, and a real failure
+— so it cannot be checked by the caller. The reconciler writes through the store
+directly, and on a write error reloads the previous text, rather than leaving a
+running process enforcing a rule no restart would reproduce.
+
+**Where.** `crates/temper-platform/src/policy_activation.rs`, with four tests for
+the merge/remove inverse.
+
+## D17: Anonymous bundle access is a question about the closure, not the app
+
+**Decision:** An anonymous bundle export refuses unless *every* repository in the
+app's dependency closure is public, checked before any file is materialized. And
+the route is reachable anonymously through an "anonymous fallback" classification
+rather than by being declared a public kernel request.
+
+**Came up because:** Two findings against the same change. The visibility check
+read only the root repository, so a public app that depends on a private one
+exported the private one too. Separately, `is_public_kernel_request` is evaluated
+*before* credential resolution and returns immediately, so listing the bundle
+route there meant an authenticated caller asking for a private bundle had their
+credential discarded and was refused as anonymous.
+
+**Options:** Check visibility per repository as each is materialized; check the
+whole closure up front; drop anonymous bundle access and require a credential
+(which reinstates the install failure this effort exists to fix). For the
+classification: leave it public and have the handler re-resolve the credential
+itself; move the credential check earlier; add a separate classification checked
+after resolution.
+
+**Chose the up-front closure check because:** Refusing partway through has
+already read the private content — the check has to complete before the first
+file is touched. And **chose the separate classification because** "public"
+should mean a credential is not required, never that a presented one is ignored;
+a route that serves anonymous callers must not cost authenticated ones their
+authority. Having the handler re-resolve the credential would duplicate the
+middleware's job in the component least able to do it.
+
+**Where.** `crates/temper-platform/src/genesis_install.rs`
+(`BundleAudience`, `refuse_unless_every_repository_is_public`),
+`crates/temper-server/src/authz/edge.rs` (`allows_anonymous_fallback`),
+`crates/temper-platform/src/bearer_auth.rs`. The ordering regression is pinned by
+`the_bundle_route_still_resolves_a_credential_when_one_is_presented`, which was
+confirmed to fail against the old classification before the fix was kept.

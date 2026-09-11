@@ -190,7 +190,22 @@ pub async fn bearer_auth_check(
         return Ok(next.run(req).await);
     }
 
+    // Last resort: a route that serves anonymous callers. Reached only after
+    // credential resolution has already had its chance, so a caller who DID
+    // present a valid credential took the authenticated branch above and the
+    // handler sees their authority. One that presented none arrives here with
+    // no `AuthenticatedRequestContext`, which is how the handler knows to apply
+    // the anonymous rules instead.
+    if temper_server::authz::allows_anonymous_fallback(&request_method_of(&req), req.uri().path()) {
+        req.headers_mut().remove("authorization");
+        return Ok(next.run(req).await);
+    }
+
     Err(StatusCode::UNAUTHORIZED)
+}
+
+fn request_method_of(req: &Request) -> Method {
+    req.method().clone()
 }
 
 fn authorization_parts(req: &Request) -> Option<(&str, &str)> {
