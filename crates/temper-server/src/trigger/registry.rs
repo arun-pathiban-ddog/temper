@@ -29,17 +29,37 @@ impl ReactionRegistry {
 
     /// Register reaction rules for a tenant.
     ///
-    /// # Panics
+    /// Rule count is reported, not enforced. It used to be a TigerStyle budget
+    /// assertion, which was the wrong instrument here: a budget assertion earns
+    /// its place when exceeding it would corrupt something, as it does where
+    /// memory is preallocated and a fixed limit is load-bearing. Nothing here
+    /// is preallocated — rules live in growable maps, the constant sized no
+    /// buffer and bounded no loop, and rule 257 costs exactly what rule 250
+    /// costs. So the assertion protected nothing and cost everything: it was
+    /// tenant-wide, so no single app could be written to respect it, and every
+    /// app installed into a tenant tightened it for the rest. On 2026-09-10 a
+    /// tenant hosting fifteen apps reached 265 rules; registration panicked, and
+    /// because registration also happens at startup while replaying specs
+    /// already committed to disk, the panic was on the main thread. The platform
+    /// crash-looped and could only be recovered by deleting rows by hand. A
+    /// limit that takes the system down to prevent a larger map is not a
+    /// safeguard.
     ///
-    /// Panics if the number of rules exceeds `MAX_REACTIONS_PER_TENANT`
-    /// (TigerStyle: budget assertion, fail fast on resource exhaustion).
+    /// [`MAX_REACTIONS_PER_TENANT`] survives as the threshold for a warning, so
+    /// a tenant accumulating triggers without bound is still visible. The limit
+    /// worth keeping is [`MAX_REACTION_DEPTH`](super::MAX_REACTION_DEPTH),
+    /// which bounds recursive cascades — an unbounded reaction loop is a real
+    /// failure mode, and depth is the thing that has no natural stopping point.
     pub fn register_tenant_rules(&mut self, tenant: impl Into<TenantId>, rules: Vec<ReactionRule>) {
         let tenant = tenant.into();
-        assert!(
-            rules.len() <= MAX_REACTIONS_PER_TENANT,
-            "Tenant '{tenant}' has {} reaction rules, exceeding budget of {MAX_REACTIONS_PER_TENANT}",
-            rules.len()
-        );
+        if rules.len() > MAX_REACTIONS_PER_TENANT {
+            tracing::warn!(
+                tenant = %tenant,
+                rules = rules.len(),
+                advisory_threshold = MAX_REACTIONS_PER_TENANT,
+                "tenant is carrying an unusually large number of reaction rules; registering them anyway"
+            );
+        }
 
         let mut index: BTreeMap<String, Vec<ReactionRule>> = BTreeMap::new();
         for rule in rules {
@@ -763,13 +783,24 @@ type = "same_id"
         assert!(rules[0].then.params_from.is_empty());
     }
 
+    /// Past the advisory threshold a tenant still registers, and every rule
+    /// still dispatches. This replaces a test that asserted the opposite: that
+    /// crossing the threshold panics. It did, on a tenant's fifteenth app, at
+    /// startup, on the main thread, taking the platform down over a number that
+    /// sized no buffer.
     #[test]
-    #[should_panic(expected = "exceeding budget")]
-    fn budget_assertion_on_too_many_rules() {
+    fn a_tenant_past_the_advisory_threshold_still_registers_every_rule() {
         let mut reg = ReactionRegistry::new();
-        let rules: Vec<ReactionRule> = (0..MAX_REACTIONS_PER_TENANT + 1)
+        let over = MAX_REACTIONS_PER_TENANT + 9;
+        let rules: Vec<ReactionRule> = (0..over)
             .map(|i| sample_rule(&format!("r{i}"), "Order", None, None, "Target", "Do"))
             .collect();
+
         reg.register_tenant_rules("t1", rules);
+
+        // The rules are not merely accepted, they are findable: the ones past
+        // the old ceiling dispatch exactly like the ones below it.
+        let found = reg.lookup(&TenantId::from("t1"), "Order", "Placed", "");
+        assert_eq!(found.len(), over);
     }
 }
