@@ -249,17 +249,26 @@ async fn anonymous_public_bundle(
     .await
     {
         Ok(bundle) => Ok((StatusCode::OK, Json(serde_json::json!(bundle)))),
-        Err(error) if error.contains("refused") => {
-            // Do not tell an anonymous caller whether a private app exists.
-            Err(StatusCode::UNAUTHORIZED)
+        Err(error) => {
+            // One answer for every failure. A caller who presented no
+            // credential must not be able to tell "this app is private" from
+            // "this app does not exist" -- that difference is an existence
+            // oracle over private repositories, and the reason to refuse is
+            // exactly the reason not to explain. The detail is logged instead.
+            tracing::info!(
+                tenant,
+                owner,
+                name,
+                hash,
+                error,
+                "anonymous Genesis bundle read refused"
+            );
+            Ok((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": "no public Genesis app bundle at this reference"
+                })),
+            ))
         }
-        Err(error) if error.contains("not found") => Ok((
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": error })),
-        )),
-        Err(error) => Ok((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": error })),
-        )),
     }
 }

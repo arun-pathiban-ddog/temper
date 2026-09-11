@@ -634,3 +634,39 @@ middleware's job in the component least able to do it.
 `crates/temper-platform/src/bearer_auth.rs`. The ordering regression is pinned by
 `the_bundle_route_still_resolves_a_credential_when_one_is_presented`, which was
 confirmed to fail against the old classification before the fix was kept.
+
+## D18: Both authority gates learn the anonymous fallback, and an anonymous refusal says one thing
+
+**Decision:** Admit anonymous-fallback routes in
+`require_authenticated_request_context` as well as in the bearer middleware, and
+give an anonymous bundle caller the same 404 whatever went wrong.
+
+**Came up because:** The live local run refused an anonymous bundle request with
+a bare 401 even though the bearer middleware was letting it through. Two gates
+stand in front of a kernel handler, and D17 had taught only one of them. The
+unit tests could not have caught it: each layer's tests exercise that layer.
+
+Separately, the run showed the anonymous path answering 500 "no active Genesis
+App found for acme/widget@…" — which tells an unauthenticated caller whether a
+private app exists.
+
+**Options:** For the gate — move the whole check into one middleware; give the
+handler the job of rejecting; teach the second gate the same classification. For
+the error — leave the distinct statuses (they are useful for debugging); return
+401 for refusal and 404 for missing; return one answer for every failure.
+
+**Chose teaching the second gate because:** Collapsing the two middlewares is a
+larger change to a security boundary than this effort should make, and pushing
+the decision into the handler puts it past the gate whose job it is. The
+classification is already one function, so both gates now ask it.
+
+**Chose the single answer because:** The reason to refuse a private bundle is
+exactly the reason not to explain the refusal. Distinct statuses are an
+existence oracle over private repositories, which is the same class of leak as
+D17's closure bug. The detail is logged server-side, where it is still useful
+and not disclosed.
+
+**Where.** `crates/temper-server/src/authz/edge.rs`
+(`require_authenticated_request_context`, tested by
+`the_typed_authority_gate_admits_an_anonymous_fallback_route`) and
+`crates/temper-platform/src/tenant_api/apps.rs`.
