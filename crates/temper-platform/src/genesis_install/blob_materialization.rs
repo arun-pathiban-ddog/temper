@@ -11,6 +11,11 @@ use temper_server::state::ServerState;
 use tokio::io::AsyncWriteExt as _;
 
 pub(super) const MAX_GENESIS_TREE_CANONICAL_BYTES: u64 = 16 * 1024 * 1024;
+mod field_lengths;
+
+pub(super) use field_lengths::{blob_content_len, canonical_field_len};
+use field_lengths::{declared_decoded_len, encoded_json_base64_len};
+
 const GENESIS_STREAM_CHUNK_BYTES: usize = 64 * 1024;
 const GENESIS_FILE_CREATE_TIMEOUT: Duration = Duration::from_secs(30);
 const GENESIS_MATERIALIZATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -32,83 +37,6 @@ pub(super) fn git_object_body<'a>(
         ));
     }
     Ok(body)
-}
-
-fn u64_field(value: &Value, key: &str) -> Option<u64> {
-    value
-        .get(key)
-        .or_else(|| value.get("fields").and_then(|fields| fields.get(key)))
-        .and_then(Value::as_u64)
-}
-
-fn encoded_json_base64_len(decoded_bytes: u64) -> Result<u64, String> {
-    decoded_bytes
-        .checked_add(2)
-        .map(|bytes| bytes / 3)
-        .and_then(|groups| groups.checked_mul(4))
-        .and_then(|base64_bytes| base64_bytes.checked_add(2))
-        .ok_or_else(|| "base64 JSON length overflowed u64".to_string())
-}
-
-/// Encoded size of a `CanonicalBytes` field, without decoding it.
-///
-/// Inline values carry their own base64 length; overflowed values carry the
-/// serialized JSON length in their descriptor.
-fn encoded_field_len(value: &Value) -> Option<u64> {
-    let field = value.get("CanonicalBytes").or_else(|| {
-        value
-            .get("fields")
-            .and_then(|fields| fields.get("CanonicalBytes"))
-    })?;
-    if let Some(encoded) = field.as_str() {
-        return Some(encoded.len() as u64);
-    }
-    temper_server::blobs::field_overflow_descriptor(field).map(|d| d.serialized_bytes)
-}
-
-/// Exact decoded length, when — and only when — the model declares it.
-///
-/// Only `Blob` declares `Size`; `Tree`, `Commit` and `Tag` never have. Demanding
-/// it for every kind made tree materialization fail with "Genesis object is
-/// missing a non-negative Size" on data that was always shaped this way, which
-/// took the whole Genesis install path down (the requirement arrived in
-/// 8840b4fd, after Genesis had pinned an older kernel, so nothing caught it).
-///
-/// `None` means "the model does not declare a length for this object". That is
-/// not a loss of integrity: a git object's canonical bytes are self-describing,
-/// and `git_object_body` already rejects any object whose `{kind} {len}\0`
-/// header disagrees with its own body. The declared `Size` is a second,
-/// redundant check that only blobs can offer.
-fn declared_decoded_len(value: &Value, kind: Option<&str>) -> Result<Option<u64>, String> {
-    let Some(raw_size) = u64_field(value, "Size") else {
-        return Ok(None);
-    };
-    match kind {
-        Some(kind) => raw_size
-            .checked_add(format!("{kind} {raw_size}\0").len() as u64)
-            .map(Some)
-            .ok_or_else(|| "Genesis canonical object length overflowed u64".to_string()),
-        None => Ok(Some(raw_size)),
-    }
-}
-
-/// Byte count to charge against the materialization budget.
-///
-/// Uses the declared length when there is one, and otherwise an upper bound
-/// from the encoding — base64 never decodes to more than three quarters of its
-/// encoded length, so the budget is charged conservatively rather than skipped.
-pub(super) fn canonical_field_len(value: &Value, expected_kind: &str) -> Result<u64, String> {
-    if let Some(declared) = declared_decoded_len(value, Some(expected_kind))? {
-        return Ok(declared);
-    }
-    let encoded = encoded_field_len(value)
-        .ok_or_else(|| "Genesis object is missing CanonicalBytes".to_string())?;
-    Ok(encoded / 4 * 3 + 3)
-}
-
-pub(super) fn blob_content_len(value: &Value) -> Result<u64, String> {
-    declared_decoded_len(value, None)?
-        .ok_or_else(|| "Genesis blob is missing a non-negative Size".to_string())
 }
 
 pub(super) async fn read_canonical_field_bounded(
@@ -241,9 +169,11 @@ async fn read_overflow_base64_bounded(
         ));
     }
     let encoded = encoded.verify_sha256(descriptor.sha256);
-    let mut stream =
-        temper_server::blob_store::decode_json_base64_stream(encoded, expected_bytes.unwrap_or(max_bytes))
-            .into_stream();
+    let mut stream = temper_server::blob_store::decode_json_base64_stream(
+        encoded,
+        expected_bytes.unwrap_or(max_bytes),
+    )
+    .into_stream();
     let mut decoded = Vec::with_capacity(expected_bytes.unwrap_or(0) as usize);
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
@@ -462,7 +392,6 @@ async fn write_overflow_base64(
     Ok(written)
 }
 
-
 /// Read an overflowed field whose decoded length the model does not declare.
 ///
 /// Uses the bounded stream and collects it, rather than the JSON-base64 stream
@@ -521,7 +450,12 @@ async fn read_overflow_base64_buffered(
     let body = text
         .strip_prefix('"')
         .and_then(|rest| rest.strip_suffix('"'))
-        .ok_or_else(|| format!("Genesis overflow blob {} is not a JSON string", descriptor.key))?;
+        .ok_or_else(|| {
+            format!(
+                "Genesis overflow blob {} is not a JSON string",
+                descriptor.key
+            )
+        })?;
     let decoded = base64_decode_standard(body).map_err(|error| {
         format!(
             "decode Genesis field overflow blob {}: {error}",

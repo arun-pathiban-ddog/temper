@@ -91,7 +91,6 @@ pub(crate) fn authorized_http_endpoint_host(
     module_name: &str,
     invocation_context: &WasmInvocationContext,
     http_streams: Arc<temper_wasm::http_stream::HttpStreamRegistry>,
-    security_context: &SecurityContext,
 ) -> Result<Arc<dyn WasmHost>, String> {
     let gate = state.wasm_authz_gate();
     let authz_context = WasmAuthzContext {

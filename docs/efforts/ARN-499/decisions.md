@@ -465,3 +465,53 @@ effect.
 
 **Where.** `crates/temper-platform/src/policy_activation.rs` (new), wired in
 `crates/temper-cli/src/serve/mod.rs` beside `spawn_reconciler` (temper `0d63e12e`).
+
+## D12: Split four files rather than re-baseline the readability ratchet
+
+**Decision:** Move coherent units out of the four files this change pushed over
+a size threshold, instead of running `readability-ratchet.sh snapshot`.
+
+**Came up because:** CI's readability ratchet failed on three blocking metrics:
+one prod file crossed 1000 lines, two crossed 500, and `genesis_install.rs`
+became the largest prod file in the workspace at 2744 lines.
+
+**Options:** Snapshot the baseline, which the script explicitly supports for an
+intentional bump; hand-edit only the metrics that moved, leaving a reviewable
+record; move the added code into modules of its own.
+
+**Chose the splits because:** The ratchet is not arbitrary here — each file it
+flagged had genuinely accumulated a second responsibility. Object lookup was
+sitting inside a 2700-line installer; base64 stream decoding inside a blob
+streaming file; "how long is this field" inside blob materialization; a CSDL
+naming check inside the spec registry. Each moved out as a unit with no call-site
+churn. Re-baselining would have recorded the growth as acceptable without anyone
+deciding it was.
+
+**What moved:** `genesis_install/object_lookup.rs` (135 lines out of 2744 → 2611),
+`blob_store/streaming/base64_stream.rs` (101 out of 512 → 421),
+`genesis_install/blob_materialization/field_lengths.rs` (87 out of 552 → 482),
+`registry/server_derived_names.rs` (41 out of 1026 → 991). All blocking metrics
+are back at or under baseline; `PROD_FILES_GT300` remains advisory at 240 vs 235.
+
+**Where.** The four new module files above.
+
+## D13: Remove the caller's security context from the HttpEndpoint host, do not silence it
+
+**Decision:** Delete the now-unused `security_context` parameter from
+`authorized_http_endpoint_host` and its one call site, rather than prefixing it
+with an underscore.
+
+**Came up because:** D7 made a guest's internal calls run under the guest's own
+module identity, so the caller's `SecurityContext` stopped being read. The
+compiler flagged it as unused.
+
+**Options:** Prefix with `_security_context` to silence the warning; keep passing
+it for a future caller that might want it; remove it from the signature.
+
+**Chose removal because:** The parameter is now a lie about how the function
+works. A reader seeing a security context threaded into a host builder
+reasonably concludes caller identity still governs what that host may do — which
+is exactly the confusion D7 exists to end. One caller, one line changed.
+
+**Where.** `crates/temper-server/src/state/dispatch/wasm.rs` and its call site in
+`crates/temper-server/src/router.rs`.

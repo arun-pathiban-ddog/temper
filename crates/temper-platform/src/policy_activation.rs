@@ -97,7 +97,11 @@ async fn activate_policy_entity(state: &PlatformState, tenant: &TenantId, entity
 
     // Reload first: a statement that does not parse must not be persisted as
     // active, and the entity should not be left claiming it is in force.
-    if let Err(error) = state.server.authz.reload_tenant_policies(tenant_str, &merged) {
+    if let Err(error) = state
+        .server
+        .authz
+        .reload_tenant_policies(tenant_str, &merged)
+    {
         tracing::error!(
             tenant = tenant_str,
             entity_id,
