@@ -76,7 +76,7 @@ pub(crate) fn guest_visible_headers(
 ) -> Vec<(String, String)> {
     headers
         .iter()
-        .filter(|(name, _)| {
+        .filter(|(name, value)| {
             // `forwards_credential` is an exception for exactly one header: the
             // protocol credential the guest is required to resolve itself. It is
             // not a general opt-out of the denylist. Cookies, `x-api-key` and the
@@ -85,7 +85,21 @@ pub(crate) fn guest_visible_headers(
             // client presented, never the caller's session cookie or whatever an
             // identity-aware proxy injected in front of the kernel.
             if forwards_credential && name.as_str().eq_ignore_ascii_case("authorization") {
-                return true;
+                // Defence in depth: this is the LAST boundary before guest
+                // state, so it re-checks the scheme rather than trusting that
+                // `bearer_auth` ran. That middleware lives in temper-platform
+                // and is what strips a kernel credential; a router assembled
+                // without it would otherwise hand a guest whatever arrived.
+                // Only the formats a protocol guest resolves may pass: Basic
+                // (git smart-HTTP) and `token` (the GitHub-compatible REST
+                // surface). Never Bearer.
+                return value
+                    .to_str()
+                    .ok()
+                    .and_then(|value| value.trim_start().split_once(' '))
+                    .is_some_and(|(scheme, _)| {
+                        scheme.eq_ignore_ascii_case("basic") || scheme.eq_ignore_ascii_case("token")
+                    });
             }
             !is_credential_header(name.as_str())
         })

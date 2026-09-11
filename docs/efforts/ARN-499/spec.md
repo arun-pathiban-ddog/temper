@@ -14,9 +14,17 @@ hostname the client used.
 
 ## Credential forwarding
 
-An HTTP endpoint route may declare `forwards_credential`. A route that declares
-it receives the client's `Authorization` header; a route that does not still has
-that header removed before the guest sees it.
+Whether an endpoint receives the client's `Authorization` header is decided by
+the kernel, from the set of protocol modules whose credential the kernel cannot
+interpret. An endpoint cannot declare it: "send me the caller's credential" is
+not a privilege an application may assert about itself, and an unrecognised
+module never forwards.
+
+Only the credential formats those protocols use travel — HTTP Basic (git
+smart-HTTP presents a GitToken as the username) and the `token` scheme (the
+GitHub-compatible REST surface). `Bearer` is never forwarded, whether or not the
+kernel could resolve it: resolution is tenant-scoped, so a credential that fails
+to resolve may still be valid in the tenant it was issued for.
 
 The opt-in is honoured wherever the header is removed, including the public-route
 branch taken by endpoints that declare `RequiresAuth=false` in order to issue
