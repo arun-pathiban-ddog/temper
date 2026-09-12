@@ -8,6 +8,8 @@
   - `crates/temper-server/src/trigger/registry.rs` (`register_tenant_rules`)
   - `crates/temper-server/src/trigger/types.rs` (`MAX_REACTIONS_PER_TENANT`, `MAX_REACTION_DEPTH`)
   - `AGENTS.md`, Rust conventions
+  - ADR-0045: Reactions as a First-Class App Primitive (superseded in part: its
+    "no change to `MAX_REACTIONS_PER_TENANT`" non-goal no longer holds)
 
 ## Context
 
