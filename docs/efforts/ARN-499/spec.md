@@ -42,10 +42,3 @@ length is read to completion rather than compared against a cap treated as an
 exact expectation. A declared `Size` is required only of models that declare it.
 
 An app bundle that is public serves without a credential.
-
-## Policy activation
-
-When a Policy entity becomes `Active`, its Cedar statement is loaded into the
-tenant's authorization engine before the entity is persisted as activated. If the
-load fails, the entity is not marked active. An approved policy is in force when
-the system says it is.
