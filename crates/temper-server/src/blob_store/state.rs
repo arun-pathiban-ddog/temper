@@ -196,10 +196,17 @@ impl ServerState {
         .await
         .map_err(|_| format!("legacy DB blob read for '{key}' timed out queueing for blob I/O"))?
         .map_err(|error| format!("legacy DB blob I/O semaphore closed for '{key}': {error}"))?;
-        let Some(bytes) = store
-            .get_blob_if_size_at_most(key, ceiling)
-            .await
-            .map_err(|error| format!("legacy DB blob read failed for '{key}': {error}"))?
+        // Bounded in time as well as size, like every other buffered blob
+        // operation. This is an external database read holding a blob I/O
+        // permit: without a deadline a hung store would keep the permit and
+        // starve the readers queued behind it.
+        let Some(bytes) = tokio::time::timeout(
+            super::BLOB_BUFFERED_OPERATION_TIMEOUT,
+            store.get_blob_if_size_at_most(key, ceiling),
+        )
+        .await
+        .map_err(|_| format!("legacy DB blob read for '{key}' timed out"))?
+        .map_err(|error| format!("legacy DB blob read failed for '{key}': {error}"))?
         else {
             return Ok(super::BlobStreamRead::Missing);
         };

@@ -533,9 +533,9 @@ inside the component the boundary protects the system from. The exception exists
 for credentials the kernel cannot interpret; a Bearer token is one it can, so it
 is precisely the case the exception should not cover.
 
-**Where.** `crates/temper-platform/src/bearer_auth.rs`
-(`credential_is_kernel_bearer`), tested by
-`a_forwarding_route_never_hands_a_guest_a_kernel_bearer_token`.
+**Where.** `crates/temper-platform/src/bearer_auth.rs`. Superseded by D23, which
+replaced the scheme-negative rule with a positive format allowlist; the test is
+now `a_forwarding_route_forwards_only_the_protocol_credential_formats`.
 
 ## D17: Anonymous bundle access is a question about the closure, not the app
 
@@ -740,3 +740,82 @@ truncation, and "small by construction" is a property of today's data. The
 refusal names both numbers so the failure is diagnosable.
 
 **Where.** `crates/temper-platform/src/genesis_install/blob_materialization.rs`.
+
+## D27: Keep the kernel strict about resolved credentials, and make the consequence loud
+
+**Decision:** A credential the kernel resolved is still never forwarded, even
+though that breaks the current production push; the collision is surfaced with a
+specific warning and fixed as data, not by relaxing the rule.
+
+**Came up because:** `fable` read the code against D7 and found what the live
+proof could not. D7 records that one secret is registered both as
+`gt-paw-agent`'s `HashedSecret` and as an Active `AgentCredential`. So in
+production that push RESOLVES, takes the authenticated branch, is stripped as
+kernel authority, and the guest sees an anonymous request. The push fails and
+nothing in git's output says why.
+
+The live verification missed it because the test GitToken was not also an
+AgentCredential, so it took the public branch and was forwarded. The one
+configuration that behaves differently is the one in production.
+
+**Options:** Forward a resolved credential when the route opted in and the format
+matches — production keeps working, and a live kernel credential reaches a WASM
+guest; special-case the overlap in the kernel; keep the rule strict and separate
+the two identities in data.
+
+**Chose strict because** the alternative is the exact defect three reviewers
+independently flagged in earlier rounds, and "it already works this way in
+production" is a reason to fix production, not to weaken a boundary. A
+special-case in the kernel would encode one deployment's data problem as kernel
+behaviour.
+
+**What that costs, stated plainly:** deploying this kernel to Genesis breaks the
+paw agent's push until its GitToken secret stops also being an AgentCredential.
+That is a deploy prerequisite, tracked as ARN-506, not a surprise to discover
+afterwards.
+
+**Where.** `crates/temper-platform/src/bearer_auth.rs` — the warning names the
+overlap as the likely cause so the failure is diagnosable rather than a bare 401.
+
+## D28: Forwarding is keyed on the module name, and that is recorded rather than solved
+
+**Decision:** Leave credential forwarding keyed on the integration module's name,
+and track the weakness instead of fixing it in this PR.
+
+**Came up because:** codex observed that the privilege is inferred from
+`integration_module`, a string on a tenant-controlled HttpEndpoint row. A tenant
+that can create endpoints can name a module `git_receive_pack` and receive
+credentials presented to its own endpoint.
+
+**Options:** Bind forwarding to the os-app that registered the module, which
+needs module provenance the registry does not expose today; require a kernel-side
+allowlist of (module, app) pairs; leave it and record the bound.
+
+**Chose recording it because** the reach is genuinely bounded and the proper fix
+is a provenance feature, not a patch. What can be forwarded is already narrow: a
+Basic or `token` credential, never a Bearer, never one the kernel resolved, and
+only to an endpoint in the tenant the client addressed. A tenant naming its
+module `git_receive_pack` receives credentials that clients deliberately sent to
+that tenant's own endpoint — it learns nothing it was not already being told.
+
+**Not dismissed.** Filed as ARN-507 so the provenance gap is a tracked piece of
+work rather than a comment nobody finds.
+
+## D29: The legacy blob read is bounded in time as well as size
+
+**Decision:** Wrap the legacy database read in `BLOB_BUFFERED_OPERATION_TIMEOUT`,
+the deadline every other buffered blob operation uses.
+
+**Came up because:** codex noticed the fallback performs an external read with no
+timeout while holding a blob I/O permit. A hung store would keep the permit and
+starve every reader queued behind it — the semaphore added in D22 would become
+the thing that spreads the stall.
+
+**Options:** No timeout, since legacy reads are rare; a bespoke shorter deadline;
+the existing buffered-operation timeout.
+
+**Chose the existing timeout because** it is the same class of operation and a
+second constant is a second thing to keep aligned. "Rare" describes today's data,
+not the code.
+
+**Where.** `crates/temper-server/src/blob_store/state.rs`.

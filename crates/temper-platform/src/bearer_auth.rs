@@ -128,6 +128,9 @@ pub async fn bearer_auth_check(
                 .with_session_id(session_id);
 
         req.extensions_mut().insert(authenticated);
+        let route_resolves_its_own_credential = matched_endpoint
+            .as_ref()
+            .is_some_and(|matched| matched.route.forwards_credential);
         if let Some(matched) = matched_endpoint {
             req.extensions_mut()
                 .insert(temper_server::http_endpoint::AdmittedHttpEndpoint::new(
@@ -150,6 +153,24 @@ pub async fn bearer_auth_check(
         // a kernel identity, so it IS kernel authority and must not reach a
         // guest whatever the route declared. The forwarding exception exists
         // for credentials the kernel cannot interpret; this one it just did.
+        //
+        // There is an operational consequence worth saying out loud, because it
+        // is not hypothetical: if one secret is registered BOTH as a GitToken's
+        // HashedSecret and as an AgentCredential -- the state D7 found on
+        // `gt-paw-agent` -- a push carrying it resolves here, is stripped, and
+        // the guest sees an anonymous request. The push then fails for a reason
+        // nothing in the git output explains. Say it here rather than leave the
+        // next person to rediscover it from a 401.
+        if route_resolves_its_own_credential && req.headers().contains_key("authorization") {
+            tracing::warn!(
+                tenant = %tenant,
+                path = %req.uri().path(),
+                "a protocol route that resolves its own credential received one the KERNEL \
+                 resolved; it is kernel authority and is withheld from the guest. If this is a \
+                 GitToken, its secret is also registered as an AgentCredential and the two \
+                 identities must be separated, or the guest sees this request as anonymous"
+            );
+        }
         req.headers_mut().remove("authorization");
         return Ok(next.run(req).await);
     }

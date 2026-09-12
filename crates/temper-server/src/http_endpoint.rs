@@ -53,9 +53,10 @@ pub struct HttpEndpointRoute {
     /// If true, the inbound `Authorization` header is visible to the guest.
     ///
     /// Off by default, and the default is the invariant: a caller credential
-    /// must never reach a WASM guest (ARN-208). An endpoint opts in only when
-    /// the protocol it implements carries its own credential that the kernel
-    /// cannot interpret — git smart-HTTP presents a GitToken as HTTP Basic,
+    /// must never reach a WASM guest (ARN-208). The KERNEL decides this, not
+    /// the endpoint row — an application may not assert that it should receive
+    /// the caller's credential. It is set for the protocol modules whose
+    /// credential the kernel cannot interpret — git smart-HTTP presents a GitToken as HTTP Basic,
     /// which is meaningless to the kernel and is the app's to resolve. Stripping
     /// it there does not protect anything: it removes the only thing the guest
     /// can authenticate with, and every push fails as anonymous.
