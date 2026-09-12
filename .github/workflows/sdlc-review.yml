@@ -132,7 +132,7 @@ jobs:
           PR_NUM: ${{ github.event.pull_request.number }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          RISK=$(python3 -c "import json; print(json.load(open('.review/review.json')).get('risk','high'))")
+          RISK=$(python3 -c "import json; r=json.load(open('.review/review.json')); print('human' if r.get('risk_flags') or r.get('risk')!='low' else 'low')")
           CHANGED=$(git diff --name-only "origin/${PR_BASE_REF}...HEAD") \
             || { echo "::error::cannot diff against base - failing closed"; exit 1; }
           disarm() {
@@ -149,12 +149,18 @@ jobs:
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
             echo "workflow files changed - a human presses merge"; exit 0; fi
           if [ "$RISK" = "low" ]; then
-            gh pr merge "$PR_NUM" --squash --auto && echo "auto-merge enabled: panel risk low"
+            # arming auto-merge is a convenience, not the verdict: if the repo
+            # forbids it, degrade to human-press instead of failing the gate
+            if gh pr merge "$PR_NUM" --squash --auto; then
+              echo "auto-merge enabled: no risk flags"
+            else
+              echo "::warning::could not arm auto-merge (repo setting?); no risk flags - a human (or the owner-agent) presses merge"
+            fi
           else
             # an earlier low-risk run may have armed auto-merge; revoke it
             disarm
             gh pr edit "$PR_NUM" --add-label human-review 2>/dev/null || true
-            echo "panel risk $RISK - a human presses merge"
+            echo "risk flags set - raise a do Ask with the PR URL; a human confirms merge"
           fi
       - name: Fold the verdict into a PR comment
         if: always()
