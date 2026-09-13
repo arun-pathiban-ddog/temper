@@ -85,6 +85,19 @@ pub fn is_public_kernel_request(method: &Method, path: &str) -> bool {
 /// serves anonymously, so an installing kernel that holds no registry
 /// credential can fetch a public app. The handler refuses unless every
 /// repository in the app's closure is public.
+/// Which `Authorization` schemes a protocol guest is meant to resolve.
+///
+/// Positively scoped: `Basic` (git smart-HTTP presents a GitToken as the Basic
+/// username) and `token` (the GitHub-compatible REST surface). Every other
+/// scheme — `Bearer` above all — is withheld, because a credential that merely
+/// failed to resolve is not thereby safe to hand to a guest: resolution is
+/// tenant-scoped, so a valid kernel bearer aimed at the wrong tenant fails to
+/// resolve while remaining usable against the right one. Checked by the bearer
+/// middleware and again at the guest boundary; this is the one definition.
+pub fn is_forwardable_protocol_scheme(scheme: &str) -> bool {
+    scheme.eq_ignore_ascii_case("basic") || scheme.eq_ignore_ascii_case("token")
+}
+
 pub fn allows_anonymous_fallback(method: &Method, path: &str) -> bool {
     method == Method::GET && path.starts_with("/api/genesis/apps/") && path.ends_with("/bundle")
 }

@@ -98,7 +98,7 @@ pub(crate) fn guest_visible_headers(
                     .ok()
                     .and_then(|value| value.trim_start().split_once(' '))
                     .is_some_and(|(scheme, _)| {
-                        scheme.eq_ignore_ascii_case("basic") || scheme.eq_ignore_ascii_case("token")
+                        crate::authz::is_forwardable_protocol_scheme(scheme)
                     });
             }
             !is_credential_header(name.as_str())

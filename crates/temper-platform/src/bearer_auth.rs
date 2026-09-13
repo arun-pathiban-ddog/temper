@@ -15,22 +15,14 @@ use temper_runtime::tenant::TenantId;
 
 const BASIC_CREDENTIAL_DECODE_BUDGET: usize = 8 * 1024;
 
-/// Is this credential in a format a protocol guest is meant to resolve?
-///
-/// Positively scoped on purpose: `Basic` (git smart-HTTP presents a GitToken as
-/// the Basic username) and `token` (the GitHub-compatible REST surface). Every
-/// other scheme -- `Bearer` above all -- is withheld, because a credential that
-/// merely failed to resolve is not thereby safe to hand to a guest: resolution
-/// is tenant-scoped, so a valid kernel bearer aimed at the wrong tenant fails
-/// to resolve while remaining perfectly usable against the right one.
+/// Is the presented credential in a scheme a protocol guest is meant to resolve?
+/// The rule itself lives in `temper_server::authz::is_forwardable_protocol_scheme`.
 fn credential_is_forwardable_protocol_format(headers: &axum::http::HeaderMap) -> bool {
     headers
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim_start().split_once(' '))
-        .is_some_and(|(scheme, _)| {
-            scheme.eq_ignore_ascii_case("basic") || scheme.eq_ignore_ascii_case("token")
-        })
+        .is_some_and(|(scheme, _)| temper_server::authz::is_forwardable_protocol_scheme(scheme))
 }
 
 /// Resolve the request's bearer credential and attach typed authority.
@@ -226,16 +218,12 @@ pub async fn bearer_auth_check(
     // handler sees their authority. One that presented none arrives here with
     // no `AuthenticatedRequestContext`, which is how the handler knows to apply
     // the anonymous rules instead.
-    if temper_server::authz::allows_anonymous_fallback(&request_method_of(&req), req.uri().path()) {
+    if temper_server::authz::allows_anonymous_fallback(req.method(), req.uri().path()) {
         req.headers_mut().remove("authorization");
         return Ok(next.run(req).await);
     }
 
     Err(StatusCode::UNAUTHORIZED)
-}
-
-fn request_method_of(req: &Request) -> Method {
-    req.method().clone()
 }
 
 fn authorization_parts(req: &Request) -> Option<(&str, &str)> {
