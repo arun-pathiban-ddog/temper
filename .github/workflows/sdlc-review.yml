@@ -125,6 +125,10 @@ jobs:
         id: validate
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        env:
+          # Repo variable. Unset means the model majority. Set to 1 where records
+          # come from the shared computer and not every reviewer CLI is logged in.
+          SDLC_MIN_MODEL_REVIEWERS: ${{ vars.SDLC_MIN_MODEL_REVIEWERS }}
         run: python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD"
       - name: Route on the panel's risk judgment
         env:
