@@ -184,7 +184,7 @@ async fn a_globally_keyed_table_is_rekeyed_by_tenant_on_open() {
     let db_url = format!("file:{}", db_path.display());
 
     {
-        let legacy = libsql::Builder::new_local(&db_path)
+        let legacy = turso::Builder::new_local(db_path.to_str().unwrap())
             .build()
             .await
             .expect("open legacy db");

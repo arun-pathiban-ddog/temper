@@ -176,9 +176,6 @@ jobs:
           if [ "$FOUND" = true ]; then exit 1; fi
           echo "Integrity check: OK"
 
-      - name: Verify patched libSQL source
-        run: python3 scripts/check-vendored-libsql.py
-
       - name: Pre-commit exclusion regression
         run: bash .claude/hooks/test-pre-commit.sh
 

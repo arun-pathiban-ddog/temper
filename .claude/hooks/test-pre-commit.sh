@@ -21,7 +21,7 @@ check_case() {
     printf 'PASS %s\n' "$name"
 }
 
-check_case upstream vendor/libsql/src/lib.rs 'fn upstream() { todo!(); }' 0
+check_case removed_vendor_exception vendor/libsql/src/lib.rs 'fn upstream() { todo!(); }' 1
 check_case adjacent vendor/libsql-extra/src/lib.rs 'fn unexpected() { todo!(); }' 1
 check_case first_party crates/example/src/lib.rs 'fn incomplete() { todo!(); }' 1
 check_case complete crates/example/src/lib.rs 'fn complete() -> bool { true }' 0

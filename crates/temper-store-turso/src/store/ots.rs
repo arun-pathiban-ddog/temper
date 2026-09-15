@@ -1,6 +1,6 @@
 //! OTS trajectory persistence methods.
 
-use libsql::params;
+use crate::driver::params;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;
 
@@ -248,7 +248,7 @@ impl TursoEventStore {
         }
         sql.push_str(&format!(" ORDER BY created_at DESC LIMIT {limit}"));
 
-        let mut values: Vec<libsql::Value> = vec![tenant.to_string().into()];
+        let mut values: Vec<crate::driver::Value> = vec![tenant.to_string().into()];
         if let Some(aid) = agent_id {
             values.push(aid.to_string().into());
         }
@@ -257,7 +257,7 @@ impl TursoEventStore {
         }
 
         let mut rows = conn
-            .query(&sql, libsql::params_from_iter(values))
+            .query(&sql, crate::driver::params_from_iter(values))
             .await
             .map_err(storage_error)?;
 

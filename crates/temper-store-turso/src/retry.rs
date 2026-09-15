@@ -38,6 +38,9 @@ pub(crate) fn retry_delay_ms(retry_index: usize) -> u64 {
 /// that retry with backoff can reasonably recover from.
 ///
 /// Matched patterns:
+/// - The adapter's typed remote Busy/BusySnapshot marker.
+/// - The adapter's remote request/cursor transport-failure marker. HTTP status
+///   failures and malformed responses do not receive this marker.
 /// - Hrana `BLOCKED` code (free-tier write quota, operator quota hold,
 ///   maintenance pause). The actual wire error shape from libsql is:
 ///   `Hrana: stream error: Error { message: "Operation was blocked: …",
@@ -60,7 +63,9 @@ pub(crate) fn is_transient_write_error(err_msg: &str) -> bool {
         // translates this to ConcurrencyViolation. Never retry.
         return false;
     }
-    lower.contains("blocked")
+    lower.contains("remote turso busy:")
+        || lower.contains("remote turso transport failure:")
+        || lower.contains("blocked")
         || lower.contains("operation was blocked")
         || lower.contains("stream error")
         || lower.contains("connection reset")

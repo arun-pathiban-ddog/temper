@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use libsql::{TransactionBehavior, params};
+use crate::driver::params;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;
 
@@ -85,7 +85,7 @@ impl TursoEventStore {
 
     /// Atomically upsert multiple specs, record the app installation, optionally
     /// write a Cedar policy, and mark all tenant specs as committed — all within
-    /// a single libsql transaction.
+    /// a single database transaction.
     ///
     /// This eliminates the crash-vulnerability window where individual upserts
     /// leave specs with `committed=0` that get garbage-collected on restart.
@@ -112,10 +112,7 @@ impl TursoEventStore {
         let _write_permit = self
             .acquire_write_permit("turso.upsert_specs_and_commit", WritePriority::High)
             .await?;
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .await
-            .map_err(storage_error)?;
+        let tx = conn.begin_immediate().await.map_err(storage_error)?;
 
         for index in spec_indices {
             let (entity_type, ioa_source, csdl_xml, content_hash) = specs[index];
@@ -186,7 +183,7 @@ impl TursoEventStore {
 
     async fn spec_indices_requiring_upsert(
         &self,
-        conn: &libsql::Connection,
+        conn: &crate::driver::Connection,
         tenant: &str,
         specs: &[(&str, &str, &str, &str)],
     ) -> Result<Vec<usize>, PersistenceError> {
@@ -216,7 +213,7 @@ impl TursoEventStore {
     }
 
     async fn load_spec_fingerprints(
-        conn: &libsql::Connection,
+        conn: &crate::driver::Connection,
         tenant: &str,
         entity_types: &[&str],
     ) -> Result<BTreeMap<String, ExistingSpecFingerprint>, PersistenceError> {
@@ -233,7 +230,7 @@ impl TursoEventStore {
              FROM specs \
              WHERE tenant = ?1 AND entity_type IN ({placeholders})"
         );
-        let mut values: Vec<libsql::Value> = vec![tenant.to_string().into()];
+        let mut values: Vec<crate::driver::Value> = vec![tenant.to_string().into()];
         values.extend(
             entity_types
                 .iter()
@@ -241,7 +238,7 @@ impl TursoEventStore {
         );
 
         let mut rows = conn
-            .query(&sql, libsql::params_from_iter(values))
+            .query(&sql, crate::driver::params_from_iter(values))
             .await
             .map_err(storage_error)?;
         let mut existing = BTreeMap::new();
@@ -267,7 +264,7 @@ impl TursoEventStore {
     }
 
     async fn tenant_policy_needs_write(
-        conn: &libsql::Connection,
+        conn: &crate::driver::Connection,
         tenant: &str,
         policy: Option<&str>,
     ) -> Result<bool, PersistenceError> {
@@ -290,7 +287,7 @@ impl TursoEventStore {
     }
 
     async fn installed_app_needs_write(
-        conn: &libsql::Connection,
+        conn: &crate::driver::Connection,
         tenant: &str,
         app_name: &str,
     ) -> Result<bool, PersistenceError> {

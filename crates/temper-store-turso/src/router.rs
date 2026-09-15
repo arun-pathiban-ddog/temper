@@ -181,7 +181,7 @@ impl TenantStoreRouter {
         let mut rows = conn
             .query(
                 "SELECT tenant_id, user_id, role FROM tenant_users WHERE user_id = ?1",
-                libsql::params![user_id],
+                crate::driver::params![user_id],
             )
             .await
             .map_err(storage_error)?;
@@ -208,7 +208,7 @@ impl TenantStoreRouter {
         let conn = self.platform.connection().map_err(storage_error)?;
         conn.execute(
             "INSERT OR REPLACE INTO tenant_users (tenant_id, user_id, role) VALUES (?1, ?2, ?3)",
-            libsql::params![tenant_id, user_id, role],
+            crate::driver::params![tenant_id, user_id, role],
         )
         .await
         .map_err(storage_error)?;
@@ -225,7 +225,7 @@ impl TenantStoreRouter {
         let mut rows = conn
             .query(
                 "SELECT tenant_id, user_id, role FROM tenant_users WHERE tenant_id = ?1",
-                libsql::params![tenant_id],
+                crate::driver::params![tenant_id],
             )
             .await
             .map_err(storage_error)?;
@@ -252,13 +252,13 @@ impl TenantStoreRouter {
         // Delete associated users and installed apps first.
         conn.execute(
             "DELETE FROM tenant_users WHERE tenant_id = ?1",
-            libsql::params![tenant_id],
+            crate::driver::params![tenant_id],
         )
         .await
         .map_err(storage_error)?;
         conn.execute(
             "DELETE FROM tenant_installed_apps WHERE tenant_id = ?1",
-            libsql::params![tenant_id],
+            crate::driver::params![tenant_id],
         )
         .await
         .map_err(storage_error)?;
@@ -267,7 +267,7 @@ impl TenantStoreRouter {
         let result = conn
             .execute(
                 "DELETE FROM tenant_registry WHERE tenant_id = ?1",
-                libsql::params![tenant_id],
+                crate::driver::params![tenant_id],
             )
             .await
             .map_err(storage_error)?;
@@ -292,7 +292,7 @@ impl TenantStoreRouter {
         let conn = self.platform.connection().map_err(storage_error)?;
         conn.execute(
             "DELETE FROM tenant_users WHERE tenant_id = ?1 AND user_id = ?2",
-            libsql::params![tenant_id, user_id],
+            crate::driver::params![tenant_id, user_id],
         )
         .await
         .map_err(storage_error)?;
@@ -316,7 +316,7 @@ impl TenantStoreRouter {
         let mut rows = conn
             .query(
                 "SELECT turso_db_url, turso_auth_token FROM tenant_registry WHERE tenant_id = ?1",
-                libsql::params![tenant_id],
+                crate::driver::params![tenant_id],
             )
             .await
             .map_err(storage_error)?;
@@ -365,7 +365,7 @@ impl TenantStoreRouter {
         conn.execute(
             "INSERT INTO tenant_registry (tenant_id, turso_db_url, turso_auth_token)
              VALUES (?1, ?2, ?3)",
-            libsql::params![tenant_id, db_url, auth_token],
+            crate::driver::params![tenant_id, db_url, auth_token],
         )
         .await
         .map_err(storage_error)?;
@@ -835,7 +835,7 @@ impl EventStore for TenantStoreRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libsql::params;
+    use crate::driver::params;
 
     #[tokio::test]
     async fn test_router_local_dev() {

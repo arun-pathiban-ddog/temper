@@ -1,4 +1,4 @@
-use libsql::params;
+use crate::driver::params;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;
 

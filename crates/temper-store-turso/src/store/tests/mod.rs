@@ -1,6 +1,6 @@
 //! Integration tests for the Turso event store.
 
-use libsql::params;
+use crate::driver::params;
 use temper_runtime::persistence::{
     EntityVectorRow, EventMetadata, EventStore, PersistenceAppend, PersistenceEnvelope,
     PersistenceError,

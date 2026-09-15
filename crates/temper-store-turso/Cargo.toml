@@ -1,18 +1,18 @@
 [package]
-# Registry publication would replace the patched path with unpatched libsql.
-publish = false
 name = "temper-store-turso"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Turso/libSQL storage backend for Temper entity services"
+description = "Turso storage backend for Temper entity services"
 
 [dependencies]
 temper-runtime = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-libsql = { path = "../../vendor/libsql", version = "0.9.29" }
+turso = { version = "=0.7.2", default-features = false }
+turso_serverless = "=0.1.3"
+thiserror = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }

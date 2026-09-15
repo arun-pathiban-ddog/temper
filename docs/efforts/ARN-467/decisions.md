@@ -555,6 +555,83 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 
 **Review dispositions:** Grok's single-table and non-string typed-shape examples reproduce the fallback. Its trailing-comma example was already refused by a later strict TOML metadata parse. Ordinary from_ioa already reports the first parse error; the constructor panic requires inconsistent inputs or changed parsing conditions and is not necessarily a process abort. The final Grok output reports divergence and is not a passing review. D31's native-actor DST exception, five findings and ARN-179 remain unchanged.
 
+
+## D44 — Qualify the official Turso engine for dependency cleanup
+
+**Decision:** Replace the maintained libSQL patch with current official Turso packages, subject to preserving the existing storage contract.
+
+**Came up because:** Rita rejected both vendored libSQL and a separate fork and explicitly selected the newer Turso tooling.
+
+**Options:** Keep the vendor patch; move the patch to a fork; restore the known failing package; qualify current official Turso packages.
+
+**Chose current Turso over a maintained libSQL patch because:** It keeps database implementation maintenance upstream. Qualification must preserve existing data and local/remote behavior; an engine incompatibility will be reported without starting another upstream repair project.
+
+**Where:** ADR-0176; crates/temper-store-turso; codex/arn467-turso-engine.
+
+
+## D45 — Keep local and remote Turso behind the storage adapter
+
+**Decision:** Use the official embedded engine for local files and the official serverless client for remote URLs, with one private adapter for the SQL operations the store uses.
+
+**Came up because:** The two official packages expose separate Rust connection and row types; replacing only the local package would drop working remote support or preserve libSQL.
+
+**Options:** Keep libSQL for remote connections; duplicate all storage queries; change remote writes into local-first sync; adapt the two official packages at the existing store boundary.
+
+**Chose the private adapter because:** It preserves one set of storage queries and direct remote-write semantics without database implementation code in Temper. The embedded package's default allocator and full-text-search features are disabled because Temper controls its allocator and does not use those features.
+
+**Where:** crates/temper-store-turso/src/driver.rs; ADR-0176; PR457.
+
+## D46 — Start local queries before returning rows
+
+**Decision:** Prime local query results in the private driver adapter and retain the first row until the caller reads it.
+
+**Came up because:** The new engine defers execution until `Rows::next`; the previous driver started the statement inside `query`. The regression test `query_executes_configuration_even_when_rows_are_discarded` failed with user_version 0 instead of 17. Temper discards results from configuration queries.
+
+**Options:** Change individual configuration callers; patch the upstream engine; preserve query execution semantics in the existing private adapter.
+
+**Chose the adapter over caller changes or an engine patch because:** It preserves the same contract for every store query without a fork or scattered exceptions. The adapter buffers one row and marks exhausted results so subsequent reads cannot restart a completed statement.
+
+**Where:** `crates/temper-store-turso/src/driver.rs`; `crates/temper-store-turso/src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.
+
+## D47 — Close remote streams when their connection leaves scope
+
+**Decision:** The private connection adapter schedules the official serverless client's `close()` when a remote connection drops.
+
+**Came up because:** Grok and Fable identified that the new SDK defers transaction rollback until connection reuse or stream closure. Temper opens a connection per store operation, so returning an error can drop both the transaction and connection; without Close, its server write lock remains until stream expiry. The previous driver scheduled Close on drop.
+
+**Options:** Add explicit cleanup to every store return path; maintain an engine/client fork; restore connection ownership cleanup in the private adapter.
+
+**Chose adapter cleanup over caller-wide changes or a fork because:** It covers success, early errors and cancelled operations at the resource boundary and uses the SDK's public Close operation. Cleanup runs on the existing Tokio runtime, matching the previous driver; shutdown without a runtime is reported rather than starting a separate runtime.
+
+**Where:** `crates/temper-store-turso/src/driver.rs`; the protocol-level close regression in `src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.
+
+## D48 — Preserve retry classification for remote database contention
+
+**Decision:** Preserve the serverless SDK's typed Busy and BusySnapshot errors as a distinct private driver error whose stable text is recognized by the existing store retry boundary.
+
+**Came up because:** Codex showed that transparent error formatting removed the old Hrana stream-error marker. A hosted SQLITE_BUSY response then bypassed the existing retry budget even though retrying the complete operation is valid.
+
+**Options:** Match generic lock-message text for every backend; change the shared kernel persistence error API; retain the remote SDK's typed classification at the adapter boundary.
+
+**Chose typed remote classification because:** It restores remote contention retries without changing local-error behavior or treating constraints and read-only failures as retryable. The public persistence error contract remains unchanged; its existing string boundary receives an explicit remote-busy marker.
+
+**Where:** `crates/temper-store-turso/src/driver.rs`; `src/retry.rs`; `src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.
+
+**D48 follow-up:** Fable also identified loss of network-error detail. The base libSQL sender uses Hyper's Display, which includes its source; the new SDK's request and cursor-stream errors retain only flattened messages. Classify those two transport-failure forms at the private adapter too, while leaving HTTP status failures and malformed responses non-transient. The pinned SDK has no finer transport cause available. Retrying a transport failure within the existing budget preserves recovery from resets; it can also retry another connection failure whose finer cause the SDK discarded. No new retry loop, budget, HTTP client or upstream patch is added.
+
+
+## D49 — Preserve the local connection lock-wait default
+
+**Decision:** Set the official Turso connection busy timeout to five seconds when each local connection opens.
+
+**Came up because:** Fable found that the previous driver set this timeout on every connection while the new engine defaults to immediate Busy. Plain store connections, including OTS and tenant writes, do not apply the longer configured-writer timeout. The contended-write regression failed before this correction.
+
+**Options:** Add retries to individual callers; change write concurrency; restore the existing connection default through the public SDK.
+
+**Chose the connection setting because:** It preserves all callers and the existing longer configured timeout without another retry loop or engine patch.
+
+**Where:** `crates/temper-store-turso/src/driver.rs`; `src/driver/tests.rs`; PR https://github.com/nerdsane/temper/pull/457.
+
 ## D44: Report the reaction-rule count instead of asserting on it
 
 **Decision:** `register_tenant_rules` warns when a tenant exceeds `MAX_REACTIONS_PER_TENANT` and registers every rule; the assertion that aborted is gone. `MAX_REACTION_DEPTH` stays a hard bound.

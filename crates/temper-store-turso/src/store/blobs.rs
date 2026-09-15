@@ -4,7 +4,7 @@
 //! This provides persistent local blob storage so the blob_adapter WASM module
 //! can upload/download via HTTP without requiring external S3/R2.
 
-use libsql::params;
+use crate::driver::params;
 use std::time::Duration;
 
 use crate::TursoEventStore;
@@ -202,7 +202,7 @@ impl TursoEventStore {
                         .get_value(0)
                         .map_err(|e| format!("blob read failed: {e}"))
                         .and_then(|v| match v {
-                            libsql::Value::Blob(b) => Ok(b),
+                            crate::driver::Value::Blob(b) => Ok(b),
                             _ => Err("blob column is not BLOB type".to_string()),
                         })?;
                     Ok(Some(data))
@@ -262,7 +262,7 @@ impl TursoEventStore {
                 .get_value(1)
                 .map_err(|e| format!("blob data read failed: {e}"))
                 .and_then(|value| match value {
-                    libsql::Value::Blob(bytes) => Ok(bytes),
+                    crate::driver::Value::Blob(bytes) => Ok(bytes),
                     _ => Err("blob data column is not BLOB type".to_string()),
                 })?;
             out.push(TursoBlobRow {

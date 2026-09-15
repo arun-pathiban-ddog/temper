@@ -3,7 +3,7 @@
 //! CRUD operations on the `tenant_secrets` table, storing AES-256-GCM
 //! encrypted ciphertext and nonce as BLOBs.
 
-use libsql::params;
+use crate::driver::params;
 use temper_runtime::persistence::{PersistenceError, storage_error};
 use tracing::instrument;
 

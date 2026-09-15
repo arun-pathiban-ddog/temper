@@ -46,16 +46,18 @@ impl TursoEventStore {
             include_count,
         );
 
-        let mut all_params: Vec<libsql::Value> = vec![
-            libsql::Value::from(tenant.to_string()),
-            libsql::Value::from(entity_type.to_string()),
+        let mut all_params: Vec<crate::driver::Value> = vec![
+            crate::driver::Value::from(tenant.to_string()),
+            crate::driver::Value::from(entity_type.to_string()),
         ];
-        all_params.extend(params.iter().cloned().map(libsql::Value::from));
-        all_params.push(libsql::Value::from(top.min(i64::MAX as usize) as i64));
-        all_params.push(libsql::Value::from(skip.min(i64::MAX as usize) as i64));
+        all_params.extend(params.iter().cloned().map(crate::driver::Value::from));
+        all_params.push(crate::driver::Value::from(top.min(i64::MAX as usize) as i64));
+        all_params.push(crate::driver::Value::from(
+            skip.min(i64::MAX as usize) as i64
+        ));
 
         let mut rows = conn
-            .query(&sql, libsql::params_from_iter(all_params))
+            .query(&sql, crate::driver::params_from_iter(all_params))
             .await
             .map_err(storage_error)?;
 
@@ -93,13 +95,13 @@ impl TursoEventStore {
              FROM entity_catalog \
              WHERE tenant = ?1 AND entity_type = ?2 AND ({where_clause})"
         );
-        let mut all_params: Vec<libsql::Value> = vec![
-            libsql::Value::from(tenant.to_string()),
-            libsql::Value::from(entity_type.to_string()),
+        let mut all_params: Vec<crate::driver::Value> = vec![
+            crate::driver::Value::from(tenant.to_string()),
+            crate::driver::Value::from(entity_type.to_string()),
         ];
-        all_params.extend(params.into_iter().map(libsql::Value::from));
+        all_params.extend(params.into_iter().map(crate::driver::Value::from));
         let count: i64 = conn
-            .query(&sql, libsql::params_from_iter(all_params))
+            .query(&sql, crate::driver::params_from_iter(all_params))
             .await
             .map_err(storage_error)?
             .next()
