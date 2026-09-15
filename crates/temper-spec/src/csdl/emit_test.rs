@@ -240,3 +240,57 @@ fn emit_round_trips_reference_csdl() {
         assert_eq!(s1.entity_containers.len(), s2.entity_containers.len());
     }
 }
+
+/// `<Annotations Target="Ns.Type/Property">` blocks are how a schema annotates
+/// something from outside it — here, which entity types a property refers to,
+/// the edges of a twin graph. They round-trip and keep their target.
+#[test]
+fn targeted_annotation_blocks_round_trip() {
+    let xml = r#"<?xml version="1.0"?>
+    <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+      <edmx:DataServices>
+        <Schema Namespace="Dsf.Twin" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+          <EntityType Name="Service">
+            <Key><PropertyRef Name="Id"/></Key>
+            <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
+            <Property Name="ApplicationId" Type="Edm.String"/>
+          </EntityType>
+          <Annotations Target="Dsf.Twin.Service/ApplicationId">
+            <Annotation Term="Temper.References" String="Service,Project"/>
+            <Annotation Term="Temper.ReferenceShape" String="single"/>
+          </Annotations>
+          <Annotations Target="Dsf.Twin.Service/Id"><Annotation Term="Temper.Enabled" Bool="true"></Annotation></Annotations>
+        </Schema>
+      </edmx:DataServices>
+    </edmx:Edmx>"#;
+
+    let doc = parse_csdl(xml).unwrap();
+    let schema = &doc.schemas[0];
+    assert_eq!(schema.targeted_annotations.len(), 2, "both blocks parse");
+    let refs = &schema.targeted_annotations[0];
+    assert_eq!(refs.target, "Dsf.Twin.Service/ApplicationId");
+    assert_eq!(refs.annotations.len(), 2);
+    assert_eq!(refs.annotations[0].term, "Temper.References");
+    assert!(
+        matches!(&refs.annotations[0].value, AnnotationValue::String(s) if s == "Service,Project")
+    );
+    assert!(matches!(
+        schema.targeted_annotations[1].annotations[0].value,
+        AnnotationValue::Bool(true)
+    ));
+    assert_eq!(schema.entity_types.len(), 1, "the block is not an entity");
+
+    let emitted = emit_csdl_xml(&doc);
+    assert!(
+        emitted.contains(r#"<Annotations Target="Dsf.Twin.Service/ApplicationId">"#),
+        "{emitted}"
+    );
+    let doc2 = parse_csdl(&emitted).expect("emitted XML should re-parse");
+    let again = &doc2.schemas[0].targeted_annotations;
+    assert_eq!(again.len(), 2);
+    assert_eq!(again[0].target, "Dsf.Twin.Service/ApplicationId");
+    assert_eq!(again[0].annotations.len(), 2);
+    assert!(
+        matches!(&again[0].annotations[0].value, AnnotationValue::String(s) if s == "Service,Project")
+    );
+}

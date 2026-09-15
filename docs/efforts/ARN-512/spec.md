@@ -27,3 +27,9 @@ marker is lost on load and the page is empty.
 Annotations on containers, entity sets, actions and properties beyond what
 the parser already keeps; entity unescaping of annotation text (a separate,
 pre-existing gap noted in `parser/elements.rs`).
+
+## Targeted blocks (added 2026-09-15)
+
+The same holds for `<Annotations Target="…">` blocks that are direct children
+of `<Schema>`: each round-trips with its target and its annotations, and
+`merge_csdl` replaces a block whose target the incoming schema also carries.

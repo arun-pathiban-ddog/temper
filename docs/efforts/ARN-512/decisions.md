@@ -57,3 +57,25 @@ change); replace the whole list (a partial reload would erase other terms).
 **Where:** `crates/temper-spec/src/csdl/parser/elements.rs`; test `record_annotations_round_trip` (red on the old parser).
 
 Proof count after D3+D4: `cargo test -p temper-spec --lib csdl` — 29 passed (four new).
+
+## D5 — targeted annotation blocks are the other half (follow-up PR)
+
+**Decision:** `<Annotations Target="Ns.Type/Property">` blocks (direct children
+of `<Schema>`) are parsed into `Schema.targeted_annotations`, emitted after the
+containers, and merged by target.
+
+**Came up because:** with `Temper.Twin` live the Twins page listed the twin but
+drew its 25 `Temper.References` edges as nothing — the DSF schema declares
+them in targeted blocks, which the kernel dropped exactly as it dropped the
+schema annotation. A force layout with no edges settles into a ring, which is
+what Rita saw (2026-09-15).
+
+**Options:** nest the reference annotations inside `<Property>` in the
+generator instead (Foundry reads both forms; rejected: the kernel would still
+lose every other targeted block, and the generator would be working around the
+kernel); parse and emit the blocks (chosen).
+
+**Where:** `crates/temper-spec/src/csdl/{types,parser/schema,merge,emit}.rs`;
+tests `targeted_annotation_blocks_round_trip`,
+`merge_replaces_targeted_annotation_blocks_by_target` (each red with its rule
+removed).
