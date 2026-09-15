@@ -104,7 +104,7 @@ jobs:
           # first non-RESOLVE line ends the rulings. Every ruling names the head
           # it is for: RESOLVE: <file:line> @<head-sha> <reason>
           raw=subprocess.run(["gh","api",f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/issues/{n}/comments",
-                              "--paginate","-q",'.[] | select(.author_association=="OWNER" or .author_association=="MEMBER") | .body | @base64'],
+                              "--paginate","-q",'.[] | select(.author_association=="OWNER" or .author_association=="MEMBER" or .author_association=="COLLABORATOR") | .body | @base64'],
                              capture_output=True,text=True).stdout
           import base64 as _b64
           comments=[_b64.b64decode(l).decode() for l in raw.split() if l]
