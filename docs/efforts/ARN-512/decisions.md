@@ -34,7 +34,7 @@ change); replace the whole list (a partial reload would erase other terms).
 
 ## Proof
 
-- `cargo test -p temper-spec --lib csdl` — 27 passed (two new). Each new test observed failing with its rule removed (emit loop; merge replace).
+- `cargo test -p temper-spec --lib csdl` — 28 passed (three new). Each new test observed failing with its rule removed (emit loop; merge replace).
 - `cargo check --workspace --tests` clean.
 - Live local: kernel at `f5864c05`, `temper serve --storage turso`; `POST /api/specs/load-inline` with temperpaw's `os-apps/dsf-twin/specs/model.csdl.xml` (nerdsane/temperpaw main) + `experiment.ioa.toml`; `$metadata` before the load: 0 `Temper.Twin`; after: `<Annotation Term="Temper.Twin" String="Deep Sci-Fi"/>` directly under `<Schema Namespace="Dsf.Twin">`. Production, same payload, same day: 0.
 
