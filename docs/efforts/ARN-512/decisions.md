@@ -79,3 +79,5 @@ kernel); parse and emit the blocks (chosen).
 tests `targeted_annotation_blocks_round_trip`,
 `merge_replaces_targeted_annotation_blocks_by_target` (each red with its rule
 removed).
+
+Proof (D5): `cargo test -p temper-spec --lib csdl` — 31 passed (two new, each red with its rule removed); `cargo check --workspace --tests` clean; readability ratchet clean. Live local (isolated `TURSO_URL`): `$metadata` before `load-inline` of temperpaw's DSF schema: 0 `<Annotations Target>`; after: 25 blocks, 25 `Temper.References`, 1 `Temper.Twin`, e.g. `<Annotations Target="Dsf.Twin.DsfRailwayServiceInstance/ApplicationId">` → `Temper.References="DsfRailwayServiceInstance,DsfVercelProject"`. Production the same day: 0.
