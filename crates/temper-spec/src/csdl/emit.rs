@@ -506,6 +506,51 @@ mod tests {
         );
     }
 
+    /// A Record value round-trips through the `<Record><PropertyValue/></Record>`
+    /// shape the emitter writes, at schema and entity level.
+    #[test]
+    fn record_annotations_round_trip() {
+        let xml = r#"<?xml version="1.0"?>
+        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+          <edmx:DataServices>
+            <Schema Namespace="App" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+              <Annotation Term="Temper.Owner">
+                <Record>
+                  <PropertyValue Property="team" String="factory"/>
+                  <PropertyValue Property="contact" String="a &amp; b"/>
+                </Record>
+              </Annotation>
+              <EntityType Name="Widget">
+                <Key><PropertyRef Name="Id"/></Key>
+                <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
+                <Annotation Term="Temper.Owner"><Record/></Annotation>
+              </EntityType>
+            </Schema>
+          </edmx:DataServices>
+        </edmx:Edmx>"#;
+
+        let doc = parse_csdl(xml).unwrap();
+        let schema = &doc.schemas[0];
+        let AnnotationValue::Record(fields) = &schema.annotations[0].value else {
+            panic!(
+                "schema Record parses as Record, got {:?}",
+                schema.annotations[0].value
+            );
+        };
+        assert_eq!(fields.get("team").map(String::as_str), Some("factory"));
+        assert!(
+            matches!(&schema.entity_types[0].annotations[0].value, AnnotationValue::Record(f) if f.is_empty())
+        );
+
+        let emitted = emit_csdl_xml(&doc);
+        let doc2 = parse_csdl(&emitted).expect("emitted XML should re-parse");
+        let AnnotationValue::Record(fields2) = &doc2.schemas[0].annotations[0].value else {
+            panic!("Record survives emit");
+        };
+        assert_eq!(fields2.len(), 2);
+        assert_eq!(fields2.get("team").map(String::as_str), Some("factory"));
+    }
+
     #[test]
     fn emit_round_trips_has_stream() {
         let xml = r#"<?xml version="1.0"?>

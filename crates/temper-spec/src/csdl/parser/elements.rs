@@ -160,9 +160,28 @@ pub(super) fn parse_annotation_children(
     }
 
     let mut collection_items = Vec::new();
+    let mut record_fields: Option<std::collections::HashMap<String, String>> = None;
     let mut buf = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
+            // <Record><PropertyValue Property="k" String="v"/>…</Record>: the
+            // shape the emitter writes for a Record value. A Record with no
+            // PropertyValue is still a Record, not an empty String.
+            Ok(quick_xml::events::Event::Start(ref element))
+            | Ok(quick_xml::events::Event::Empty(ref element))
+                if local_name(element) == "Record" =>
+            {
+                record_fields.get_or_insert_with(Default::default);
+            }
+            Ok(quick_xml::events::Event::Empty(ref element))
+                if local_name(element) == "PropertyValue" =>
+            {
+                if let (Some(fields), Some(key)) =
+                    (record_fields.as_mut(), attr_str(element, "Property"))
+                {
+                    fields.insert(key, attr_str(element, "String").unwrap_or_default());
+                }
+            }
             Ok(quick_xml::events::Event::Start(ref element)) if local_name(element) == "String" => {
                 // quick-xml 0.41 changed `read_text` to return a `BytesText`
                 // instead of an owned `String`; call `.decode()` to get the text.
@@ -193,7 +212,9 @@ pub(super) fn parse_annotation_children(
         buf.clear();
     }
 
-    let value = if collection_items.is_empty() {
+    let value = if let Some(fields) = record_fields {
+        AnnotationValue::Record(fields)
+    } else if collection_items.is_empty() {
         AnnotationValue::String(String::new())
     } else {
         AnnotationValue::Collection(collection_items)

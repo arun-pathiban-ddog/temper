@@ -34,7 +34,7 @@ change); replace the whole list (a partial reload would erase other terms).
 
 ## Proof
 
-- `cargo test -p temper-spec --lib csdl` — 28 passed (three new). Each new test observed failing with its rule removed (emit loop; merge replace).
+- `cargo test -p temper-spec --lib csdl` — 28 passed at round 2; see D4 for the final count. Each new test observed failing with its rule removed (emit loop; merge replace).
 - `cargo check --workspace --tests` clean.
 - Live local: kernel at `f5864c05`, `temper serve --storage turso`; `POST /api/specs/load-inline` with temperpaw's `os-apps/dsf-twin/specs/model.csdl.xml` (nerdsane/temperpaw main) + `experiment.ioa.toml`; `$metadata` before the load: 0 `Temper.Twin`; after: `<Annotation Term="Temper.Twin" String="Deep Sci-Fi"/>` directly under `<Schema Namespace="Dsf.Twin">`. Production, same payload, same day: 0.
 
@@ -47,3 +47,13 @@ change); replace the whole list (a partial reload would erase other terms).
 **Options:** leave it (pre-existing); fix only the schema path (a third reader); unify (chosen).
 
 **Where:** `crates/temper-spec/src/csdl/parser/elements.rs`, test `non_self_closing_annotations_keep_bool_and_int_values`.
+
+## D4 — Record values parse back (Greptile, on the round-1 head)
+
+**Decision:** `parse_annotation_children` reads `<Record><PropertyValue Property="k" String="v"/></Record>` (and the empty `<Record/>`) into `AnnotationValue::Record`.
+
+**Came up because:** the emitter wrote Record values that no parser could read back, so a Record annotation at either level came back as `String("")`. Pre-existing, same class as D3 (a document that does not survive its own round trip), and this PR is what makes schema annotations reach `$metadata` at all.
+
+**Where:** `crates/temper-spec/src/csdl/parser/elements.rs`; test `record_annotations_round_trip` (red on the old parser).
+
+Proof count after D3+D4: `cargo test -p temper-spec --lib csdl` — 29 passed (four new).
