@@ -110,14 +110,14 @@ where
 }
 
 /// Like `merge_replace_by_name`, for items whose identity is a computed key.
-fn merge_replace_by_key<T, F>(target: &mut Vec<T>, incoming: &[T], key: F)
+fn merge_replace_by_key<T, K, F>(target: &mut Vec<T>, incoming: &[T], key: F)
 where
     T: Clone,
-    F: Fn(&T) -> String + Copy,
+    K: PartialEq,
+    F: Fn(&T) -> K + Copy,
 {
     for item in incoming {
-        let k = key(item);
-        if let Some(existing) = target.iter_mut().find(|t| key(t) == k) {
+        if let Some(existing) = target.iter_mut().find(|t| key(t) == key(item)) {
             *existing = item.clone();
         } else {
             target.push(item.clone());

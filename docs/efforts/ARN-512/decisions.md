@@ -89,3 +89,9 @@ Proof (D5): `cargo test -p temper-spec --lib csdl` — 31 passed (two new, each 
 **Came up because:** fable showed two blocks on one target with different qualifiers would collapse into one on merge.
 
 **Where:** `types.rs` (`TargetedAnnotations::key`), `merge.rs` (`merge_replace_by_key`); both tests extended, the merge one red with the key reduced to the target.
+
+## D7 — the block key is a pair, not a joined string (review round 2, codex)
+
+**Decision:** `TargetedAnnotations::key` returns `(target, qualifier)`; merge compares the pair. A joined `target#qualifier` string could collide, since an annotation path may contain any delimiter.
+
+**Where:** `types.rs`, `merge.rs` (`merge_replace_by_key` generic over the key type).

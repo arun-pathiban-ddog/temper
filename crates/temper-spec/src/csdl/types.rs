@@ -37,12 +37,11 @@ pub struct TargetedAnnotations {
 }
 
 impl TargetedAnnotations {
-    /// The identity of a block: its target and qualifier together.
-    pub fn key(&self) -> String {
-        match &self.qualifier {
-            Some(q) => format!("{}#{q}", self.target),
-            None => self.target.clone(),
-        }
+    /// The identity of a block: its target and qualifier together, compared
+    /// as a pair rather than joined into one string, since an annotation path
+    /// may itself contain any delimiter.
+    pub fn key(&self) -> (String, Option<String>) {
+        (self.target.clone(), self.qualifier.clone())
     }
 }
 
