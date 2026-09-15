@@ -32,6 +32,9 @@ fn emit_schema(out: &mut String, schema: &Schema) {
     for term in &schema.terms {
         emit_term(out, term);
     }
+    for ann in &schema.annotations {
+        emit_annotation(out, ann, 6);
+    }
     for enum_type in &schema.enum_types {
         emit_enum_type(out, enum_type);
     }
@@ -403,6 +406,59 @@ mod tests {
             schema.entity_containers[0].entity_sets[0].entity_type,
             "Test.Widget"
         );
+    }
+
+    /// A schema-level annotation (a direct child of `<Schema>`) is how an app
+    /// says what it is: `Temper.Twin` marks a twin schema and names it. It has
+    /// to survive parse and emit, or `$metadata` says nothing about it.
+    #[test]
+    fn emit_round_trips_schema_annotations() {
+        let xml = r#"<?xml version="1.0"?>
+        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+          <edmx:DataServices>
+            <Schema Namespace="Dsf.Twin" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+              <Annotation Term="Temper.Twin" String="Deep Sci-Fi"/>
+              <Annotation Term="Temper.Graph.Roles">
+                <Collection><String>host</String><String>model</String></Collection>
+              </Annotation>
+              <EntityType Name="Widget">
+                <Key><PropertyRef Name="Id"/></Key>
+                <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
+                <Annotation Term="Temper.Role" String="host"/>
+              </EntityType>
+            </Schema>
+          </edmx:DataServices>
+        </edmx:Edmx>"#;
+
+        let doc = parse_csdl(xml).unwrap();
+        let schema = &doc.schemas[0];
+        assert_eq!(schema.annotations.len(), 2, "both schema annotations parse");
+        assert_eq!(schema.annotations[0].term, "Temper.Twin");
+        assert!(
+            matches!(&schema.annotations[0].value, AnnotationValue::String(s) if s == "Deep Sci-Fi")
+        );
+        assert_eq!(
+            schema.entity_types[0].annotations.len(),
+            1,
+            "entity annotations are unchanged"
+        );
+
+        let emitted = emit_csdl_xml(&doc);
+        let doc2 = parse_csdl(&emitted).expect("emitted XML should re-parse");
+        let schema2 = &doc2.schemas[0];
+        assert_eq!(
+            schema2.annotations.len(),
+            2,
+            "both schema annotations survive emit"
+        );
+        assert_eq!(schema2.annotations[0].term, "Temper.Twin");
+        assert!(
+            matches!(&schema2.annotations[0].value, AnnotationValue::String(s) if s == "Deep Sci-Fi")
+        );
+        assert!(
+            matches!(&schema2.annotations[1].value, AnnotationValue::Collection(items) if items.len() == 2)
+        );
+        assert_eq!(schema2.entity_types[0].annotations[0].term, "Temper.Role");
     }
 
     #[test]

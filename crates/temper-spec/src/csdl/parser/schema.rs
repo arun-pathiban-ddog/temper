@@ -24,6 +24,7 @@ pub(super) fn parse_schema(
         functions: Vec::new(),
         entity_containers: Vec::new(),
         terms: Vec::new(),
+        annotations: Vec::new(),
     };
 
     let mut buf = Vec::new();
@@ -42,10 +43,18 @@ pub(super) fn parse_schema(
                 "EntityContainer" => schema
                     .entity_containers
                     .push(parse_entity_container(reader, element)?),
+                "Annotation" => schema
+                    .annotations
+                    .push(parse_annotation_children(reader, element)?),
                 _ => skip_element(reader)?,
             },
             Ok(Event::Empty(ref element)) if local_name(element) == "Term" => {
                 schema.terms.push(parse_term(element));
+            }
+            Ok(Event::Empty(ref element)) if local_name(element) == "Annotation" => {
+                if let Some(annotation) = annotation_from_attrs(element) {
+                    schema.annotations.push(annotation);
+                }
             }
             Ok(Event::End(ref element)) if local_name_end(element) == "Schema" => break,
             Ok(Event::Eof) => break,
