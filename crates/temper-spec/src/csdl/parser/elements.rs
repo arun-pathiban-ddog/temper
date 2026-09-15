@@ -202,16 +202,15 @@ pub(super) fn parse_annotation_children(
     Ok(Annotation { term, value })
 }
 
+/// An inline value on an element that also has children: the attribute wins
+/// and the children are skipped. Same four value attributes as the
+/// self-closing form, so `<Annotation Term="t" Bool="true"></Annotation>`
+/// reads the same as `<Annotation Term="t" Bool="true"/>`.
 fn parse_inline_annotation_override(element: &BytesStart) -> Option<AnnotationValue> {
-    if let Some(string_value) = attr_str(element, "String") {
-        return Some(AnnotationValue::String(string_value));
-    }
-
-    if let Some(float_value) = attr_str(element, "Float") {
-        return Some(AnnotationValue::Float(float_value.parse().unwrap_or(0.0)));
-    }
-
-    None
+    ["String", "Float", "Bool", "Int"]
+        .iter()
+        .any(|name| attr_str(element, name).is_some())
+        .then(|| parse_inline_annotation_value(element))
 }
 
 fn parse_inline_annotation_value(element: &BytesStart) -> AnnotationValue {

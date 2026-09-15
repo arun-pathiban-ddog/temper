@@ -36,4 +36,14 @@ change); replace the whole list (a partial reload would erase other terms).
 
 - `cargo test -p temper-spec --lib csdl` — 27 passed (two new). Each new test observed failing with its rule removed (emit loop; merge replace).
 - `cargo check --workspace --tests` clean.
-- Live local: kernel at `f5864c05`, `temper serve --storage turso`; `POST /api/specs/load-inline` with the repo's `os-apps/dsf-twin/specs/model.csdl.xml` + `experiment.ioa.toml`; `$metadata` before the load: 0 `Temper.Twin`; after: `<Annotation Term="Temper.Twin" String="Deep Sci-Fi"/>` directly under `<Schema Namespace="Dsf.Twin">`. Production, same payload, same day: 0.
+- Live local: kernel at `f5864c05`, `temper serve --storage turso`; `POST /api/specs/load-inline` with temperpaw's `os-apps/dsf-twin/specs/model.csdl.xml` (nerdsane/temperpaw main) + `experiment.ioa.toml`; `$metadata` before the load: 0 `Temper.Twin`; after: `<Annotation Term="Temper.Twin" String="Deep Sci-Fi"/>` directly under `<Schema Namespace="Dsf.Twin">`. Production, same payload, same day: 0.
+
+## D3 — one inline-value reader for both annotation element forms (review round 1, codex)
+
+**Decision:** the non-self-closing `<Annotation …></Annotation>` reads the same four inline attributes (`String`, `Float`, `Bool`, `Int`) as the self-closing form; `parse_inline_annotation_override` now defers to `parse_inline_annotation_value`.
+
+**Came up because:** codex showed `<Annotation Term="Temper.Enabled" Bool="true"></Annotation>` under `<Schema>` would emit as `String=""`. The two readers had drifted before this change (entity-level had the same gap); this PR promises both forms survive, so the gap is in scope.
+
+**Options:** leave it (pre-existing); fix only the schema path (a third reader); unify (chosen).
+
+**Where:** `crates/temper-spec/src/csdl/parser/elements.rs`, test `non_self_closing_annotations_keep_bool_and_int_values`.

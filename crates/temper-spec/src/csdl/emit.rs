@@ -461,6 +461,51 @@ mod tests {
         assert_eq!(schema2.entity_types[0].annotations[0].term, "Temper.Role");
     }
 
+    /// `<Annotation …></Annotation>` reads like `<Annotation …/>` for every
+    /// inline value type, at schema and entity level alike.
+    #[test]
+    fn non_self_closing_annotations_keep_bool_and_int_values() {
+        let xml = r#"<?xml version="1.0"?>
+        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+          <edmx:DataServices>
+            <Schema Namespace="App" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+              <Annotation Term="Temper.Enabled" Bool="true"></Annotation>
+              <Annotation Term="Temper.Rank" Int="7"></Annotation>
+              <EntityType Name="Widget">
+                <Key><PropertyRef Name="Id"/></Key>
+                <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
+                <Annotation Term="Temper.Enabled" Bool="false"></Annotation>
+              </EntityType>
+            </Schema>
+          </edmx:DataServices>
+        </edmx:Edmx>"#;
+
+        let doc = parse_csdl(xml).unwrap();
+        let schema = &doc.schemas[0];
+        assert!(matches!(
+            schema.annotations[0].value,
+            AnnotationValue::Bool(true)
+        ));
+        assert!(matches!(
+            schema.annotations[1].value,
+            AnnotationValue::Int(7)
+        ));
+        assert!(matches!(
+            schema.entity_types[0].annotations[0].value,
+            AnnotationValue::Bool(false)
+        ));
+
+        let emitted = emit_csdl_xml(&doc);
+        assert!(
+            emitted.contains(r#"<Annotation Term="Temper.Enabled" Bool="true"/>"#),
+            "{emitted}"
+        );
+        assert!(
+            emitted.contains(r#"<Annotation Term="Temper.Rank" Int="7"/>"#),
+            "{emitted}"
+        );
+    }
+
     #[test]
     fn emit_round_trips_has_stream() {
         let xml = r#"<?xml version="1.0"?>
