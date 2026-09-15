@@ -31,7 +31,19 @@ pub struct Schema {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetedAnnotations {
     pub target: String,
+    /// CSDL lets several blocks aim at one target, told apart by qualifier.
+    pub qualifier: Option<String>,
     pub annotations: Vec<Annotation>,
+}
+
+impl TargetedAnnotations {
+    /// The identity of a block: its target and qualifier together.
+    pub fn key(&self) -> String {
+        match &self.qualifier {
+            Some(q) => format!("{}#{q}", self.target),
+            None => self.target.clone(),
+        }
+    }
 }
 
 /// An OData EntityType.

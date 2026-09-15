@@ -52,9 +52,13 @@ fn emit_schema(out: &mut String, schema: &Schema) {
     }
     for block in &schema.targeted_annotations {
         out.push_str(&format!(
-            "      <Annotations Target=\"{}\">\n",
+            "      <Annotations Target=\"{}\"",
             xml_escape(&block.target)
         ));
+        if let Some(qualifier) = &block.qualifier {
+            out.push_str(&format!(" Qualifier=\"{}\"", xml_escape(qualifier)));
+        }
+        out.push_str(">\n");
         for ann in &block.annotations {
             emit_annotation(out, ann, 8);
         }

@@ -259,7 +259,7 @@ fn targeted_annotation_blocks_round_trip() {
             <Annotation Term="Temper.References" String="Service,Project"/>
             <Annotation Term="Temper.ReferenceShape" String="single"/>
           </Annotations>
-          <Annotations Target="Dsf.Twin.Service/Id"><Annotation Term="Temper.Enabled" Bool="true"></Annotation></Annotations>
+          <Annotations Target="Dsf.Twin.Service/Id" Qualifier="ui"><Annotation Term="Temper.Enabled" Bool="true"></Annotation></Annotations>
         </Schema>
       </edmx:DataServices>
     </edmx:Edmx>"#;
@@ -290,6 +290,11 @@ fn targeted_annotation_blocks_round_trip() {
     assert_eq!(again.len(), 2);
     assert_eq!(again[0].target, "Dsf.Twin.Service/ApplicationId");
     assert_eq!(again[0].annotations.len(), 2);
+    assert_eq!(
+        again[1].qualifier.as_deref(),
+        Some("ui"),
+        "the qualifier survives emit"
+    );
     assert!(
         matches!(&again[0].annotations[0].value, AnnotationValue::String(s) if s == "Service,Project")
     );

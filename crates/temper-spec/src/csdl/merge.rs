@@ -1,6 +1,6 @@
 //! Merge two [`CsdlDocument`]s by combining their schemas.
 
-use super::types::{CsdlDocument, EntityContainer, Schema};
+use super::types::{CsdlDocument, EntityContainer, Schema, TargetedAnnotations};
 
 /// Merge two CSDL documents by combining their schemas.
 ///
@@ -61,10 +61,10 @@ fn merge_schema(schemas: &mut Vec<Schema>, incoming_schema: &Schema) {
         &incoming_schema.annotations,
         |item| item.term.as_str(),
     );
-    merge_replace_by_name(
+    merge_replace_by_key(
         &mut result_schema.targeted_annotations,
         &incoming_schema.targeted_annotations,
-        |item| item.target.as_str(),
+        TargetedAnnotations::key,
     );
 }
 
@@ -103,6 +103,22 @@ where
             .position(|existing| name(existing) == name(item))
         {
             target[position] = item.clone();
+        } else {
+            target.push(item.clone());
+        }
+    }
+}
+
+/// Like `merge_replace_by_name`, for items whose identity is a computed key.
+fn merge_replace_by_key<T, F>(target: &mut Vec<T>, incoming: &[T], key: F)
+where
+    T: Clone,
+    F: Fn(&T) -> String + Copy,
+{
+    for item in incoming {
+        let k = key(item);
+        if let Some(existing) = target.iter_mut().find(|t| key(t) == k) {
+            *existing = item.clone();
         } else {
             target.push(item.clone());
         }
@@ -242,6 +258,7 @@ mod tests {
             <Schema Namespace="App" xmlns="http://docs.oasis-open.org/odata/ns/edm">
               <Annotations Target="App.Order/OwnerId"><Annotation Term="Temper.References" String="User,Team"/></Annotations>
               <Annotations Target="App.Task/OwnerId"><Annotation Term="Temper.References" String="User"/></Annotations>
+              <Annotations Target="App.Order/OwnerId" Qualifier="alt"><Annotation Term="Temper.References" String="Bot"/></Annotations>
             </Schema>
           </edmx:DataServices>
         </edmx:Edmx>"#;
@@ -250,7 +267,16 @@ mod tests {
             &parse_csdl(incoming_xml).unwrap(),
         );
         let blocks = &merged.schemas[0].targeted_annotations;
-        assert_eq!(blocks.len(), 3, "replaced one, kept one, added one");
+        assert_eq!(
+            blocks.len(),
+            4,
+            "replaced one, kept one, added one, and a qualified block on the same target stays distinct"
+        );
+        let alt = blocks
+            .iter()
+            .find(|b| b.qualifier.as_deref() == Some("alt"))
+            .unwrap();
+        assert_eq!(alt.target, "App.Order/OwnerId");
         let owner = blocks
             .iter()
             .find(|b| b.target == "App.Order/OwnerId")

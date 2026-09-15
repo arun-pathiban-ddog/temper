@@ -349,6 +349,7 @@ fn parse_targeted_annotations(
 ) -> Result<TargetedAnnotations, CsdlParseError> {
     let mut block = TargetedAnnotations {
         target: required_attr(start, "Target")?,
+        qualifier: attr_str(start, "Qualifier"),
         annotations: Vec::new(),
     };
     let mut buf = Vec::new();

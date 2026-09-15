@@ -81,3 +81,11 @@ tests `targeted_annotation_blocks_round_trip`,
 removed).
 
 Proof (D5): `cargo test -p temper-spec --lib csdl` — 31 passed (two new, each red with its rule removed); `cargo check --workspace --tests` clean; readability ratchet clean. Live local (isolated `TURSO_URL`): `$metadata` before `load-inline` of temperpaw's DSF schema: 0 `<Annotations Target>`; after: 25 blocks, 25 `Temper.References`, 1 `Temper.Twin`, e.g. `<Annotations Target="Dsf.Twin.DsfRailwayServiceInstance/ApplicationId">` → `Temper.References="DsfRailwayServiceInstance,DsfVercelProject"`. Production the same day: 0.
+
+## D6 — a block's identity is target plus qualifier (review round 1, fable)
+
+**Decision:** `TargetedAnnotations` keeps the CSDL `Qualifier` attribute; emit writes it back; merge replaces by `target#qualifier`.
+
+**Came up because:** fable showed two blocks on one target with different qualifiers would collapse into one on merge.
+
+**Where:** `types.rs` (`TargetedAnnotations::key`), `merge.rs` (`merge_replace_by_key`); both tests extended, the merge one red with the key reduced to the target.
