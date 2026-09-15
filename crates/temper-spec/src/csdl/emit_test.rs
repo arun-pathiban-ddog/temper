@@ -260,13 +260,19 @@ fn targeted_annotation_blocks_round_trip() {
             <Annotation Term="Temper.ReferenceShape" String="single"/>
           </Annotations>
           <Annotations Target="Dsf.Twin.Service/Id" Qualifier="ui"><Annotation Term="Temper.Enabled" Bool="true"></Annotation></Annotations>
+          <Annotations Target="Dsf.Twin.Service/Cleared"/>
         </Schema>
       </edmx:DataServices>
     </edmx:Edmx>"#;
 
     let doc = parse_csdl(xml).unwrap();
     let schema = &doc.schemas[0];
-    assert_eq!(schema.targeted_annotations.len(), 2, "both blocks parse");
+    assert_eq!(
+        schema.targeted_annotations.len(),
+        3,
+        "all three blocks parse, the empty one included"
+    );
+    assert!(schema.targeted_annotations[2].annotations.is_empty());
     let refs = &schema.targeted_annotations[0];
     assert_eq!(refs.target, "Dsf.Twin.Service/ApplicationId");
     assert_eq!(refs.annotations.len(), 2);
@@ -287,7 +293,7 @@ fn targeted_annotation_blocks_round_trip() {
     );
     let doc2 = parse_csdl(&emitted).expect("emitted XML should re-parse");
     let again = &doc2.schemas[0].targeted_annotations;
-    assert_eq!(again.len(), 2);
+    assert_eq!(again.len(), 3);
     assert_eq!(again[0].target, "Dsf.Twin.Service/ApplicationId");
     assert_eq!(again[0].annotations.len(), 2);
     assert_eq!(

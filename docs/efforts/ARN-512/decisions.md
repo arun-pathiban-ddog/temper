@@ -95,3 +95,9 @@ Proof (D5): `cargo test -p temper-spec --lib csdl` — 31 passed (two new, each 
 **Decision:** `TargetedAnnotations::key` returns `(target, qualifier)`; merge compares the pair. A joined `target#qualifier` string could collide, since an annotation path may contain any delimiter.
 
 **Where:** `types.rs`, `merge.rs` (`merge_replace_by_key` generic over the key type).
+
+## D8 — merge keeps every incoming block per key; empty blocks parse (Greptile)
+
+**Decision:** on merge, every existing block whose (target, qualifier) the incoming schema carries is replaced by all incoming blocks with that key, so a target split across two blocks lands whole; a self-closing `<Annotations …/>` parses as an empty block so a reload can clear a stale one.
+
+**Where:** `merge.rs` (`merge_replace_by_key`, red with the old find-loop), `parser/schema.rs`; tests extended.

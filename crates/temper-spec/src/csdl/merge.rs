@@ -109,20 +109,19 @@ where
     }
 }
 
-/// Like `merge_replace_by_name`, for items whose identity is a computed key.
+/// Replaces every existing item whose key the incoming set carries with the
+/// incoming items of that key, keeping the rest. Unlike `merge_replace_by_name`
+/// this keeps several incoming items per key: a document may split one
+/// target's annotations across blocks, and each block must land.
 fn merge_replace_by_key<T, K, F>(target: &mut Vec<T>, incoming: &[T], key: F)
 where
     T: Clone,
     K: PartialEq,
     F: Fn(&T) -> K + Copy,
 {
-    for item in incoming {
-        if let Some(existing) = target.iter_mut().find(|t| key(t) == key(item)) {
-            *existing = item.clone();
-        } else {
-            target.push(item.clone());
-        }
-    }
+    let incoming_keys: Vec<K> = incoming.iter().map(key).collect();
+    target.retain(|t| !incoming_keys.contains(&key(t)));
+    target.extend(incoming.iter().cloned());
 }
 
 fn merge_append_missing_by_name<T, F>(target: &mut Vec<T>, incoming: &[T], name: F)
@@ -259,6 +258,7 @@ mod tests {
               <Annotations Target="App.Order/OwnerId"><Annotation Term="Temper.References" String="User,Team"/></Annotations>
               <Annotations Target="App.Task/OwnerId"><Annotation Term="Temper.References" String="User"/></Annotations>
               <Annotations Target="App.Order/OwnerId" Qualifier="alt"><Annotation Term="Temper.References" String="Bot"/></Annotations>
+              <Annotations Target="App.Task/OwnerId"><Annotation Term="Temper.ReferenceShape" String="json_list"/></Annotations>
             </Schema>
           </edmx:DataServices>
         </edmx:Edmx>"#;
@@ -269,8 +269,15 @@ mod tests {
         let blocks = &merged.schemas[0].targeted_annotations;
         assert_eq!(
             blocks.len(),
-            4,
-            "replaced one, kept one, added one, and a qualified block on the same target stays distinct"
+            5,
+            "replaced one, kept one, added one, a qualified block on the same target stays distinct, and a target split across two incoming blocks keeps both"
+        );
+        assert_eq!(
+            blocks
+                .iter()
+                .filter(|b| b.target == "App.Task/OwnerId")
+                .count(),
+            2
         );
         let alt = blocks
             .iter()

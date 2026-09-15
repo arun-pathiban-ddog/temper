@@ -60,6 +60,15 @@ pub(super) fn parse_schema(
                     schema.annotations.push(annotation);
                 }
             }
+            // An empty block still names its target; on merge it replaces
+            // what was there, which is how a reload clears a stale block.
+            Ok(Event::Empty(ref element)) if local_name(element) == "Annotations" => {
+                schema.targeted_annotations.push(TargetedAnnotations {
+                    target: required_attr(element, "Target")?,
+                    qualifier: attr_str(element, "Qualifier"),
+                    annotations: Vec::new(),
+                });
+            }
             Ok(Event::End(ref element)) if local_name_end(element) == "Schema" => break,
             Ok(Event::Eof) => break,
             Err(error) => return Err(CsdlParseError::Xml(error)),

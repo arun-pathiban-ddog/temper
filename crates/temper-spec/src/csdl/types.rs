@@ -30,9 +30,11 @@ pub struct Schema {
 /// An `<Annotations Target="…">` block: annotations aimed at one model element.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetedAnnotations {
+    /// The model element the block annotates, as `Ns.Type` or `Ns.Type/Property`.
     pub target: String,
     /// CSDL lets several blocks aim at one target, told apart by qualifier.
     pub qualifier: Option<String>,
+    /// The annotations applied to the target.
     pub annotations: Vec<Annotation>,
 }
 
