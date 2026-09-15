@@ -50,6 +50,20 @@ fn emit_schema(out: &mut String, schema: &Schema) {
     for container in &schema.entity_containers {
         emit_entity_container(out, container);
     }
+    for block in &schema.targeted_annotations {
+        out.push_str(&format!(
+            "      <Annotations Target=\"{}\"",
+            xml_escape(&block.target)
+        ));
+        if let Some(qualifier) = &block.qualifier {
+            out.push_str(&format!(" Qualifier=\"{}\"", xml_escape(qualifier)));
+        }
+        out.push_str(">\n");
+        for ann in &block.annotations {
+            emit_annotation(out, ann, 8);
+        }
+        out.push_str("      </Annotations>\n");
+    }
 
     out.push_str("    </Schema>\n");
 }

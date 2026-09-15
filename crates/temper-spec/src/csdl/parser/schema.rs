@@ -25,6 +25,7 @@ pub(super) fn parse_schema(
         entity_containers: Vec::new(),
         terms: Vec::new(),
         annotations: Vec::new(),
+        targeted_annotations: Vec::new(),
     };
 
     let mut buf = Vec::new();
@@ -46,6 +47,9 @@ pub(super) fn parse_schema(
                 "Annotation" => schema
                     .annotations
                     .push(parse_annotation_children(reader, element)?),
+                "Annotations" => schema
+                    .targeted_annotations
+                    .push(parse_targeted_annotations(reader, element)?),
                 _ => skip_element(reader)?,
             },
             Ok(Event::Empty(ref element)) if local_name(element) == "Term" => {
@@ -55,6 +59,15 @@ pub(super) fn parse_schema(
                 if let Some(annotation) = annotation_from_attrs(element) {
                     schema.annotations.push(annotation);
                 }
+            }
+            // An empty block still names its target; on merge it replaces
+            // what was there, which is how a reload clears a stale block.
+            Ok(Event::Empty(ref element)) if local_name(element) == "Annotations" => {
+                schema.targeted_annotations.push(TargetedAnnotations {
+                    target: required_attr(element, "Target")?,
+                    qualifier: attr_str(element, "Qualifier"),
+                    annotations: Vec::new(),
+                });
             }
             Ok(Event::End(ref element)) if local_name_end(element) == "Schema" => break,
             Ok(Event::Eof) => break,
@@ -335,4 +348,39 @@ fn parse_entity_container(
     }
 
     Ok(entity_container)
+}
+
+/// `<Annotations Target="…">…</Annotations>`: the annotations inside, in
+/// either element form, kept with their target.
+fn parse_targeted_annotations(
+    reader: &mut Reader<&[u8]>,
+    start: &BytesStart,
+) -> Result<TargetedAnnotations, CsdlParseError> {
+    let mut block = TargetedAnnotations {
+        target: required_attr(start, "Target")?,
+        qualifier: attr_str(start, "Qualifier"),
+        annotations: Vec::new(),
+    };
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref element)) if local_name(element) == "Annotation" => {
+                block
+                    .annotations
+                    .push(parse_annotation_children(reader, element)?);
+            }
+            Ok(Event::Start(_)) => skip_element(reader)?,
+            Ok(Event::Empty(ref element)) if local_name(element) == "Annotation" => {
+                if let Some(annotation) = annotation_from_attrs(element) {
+                    block.annotations.push(annotation);
+                }
+            }
+            Ok(Event::End(ref element)) if local_name_end(element) == "Annotations" => break,
+            Ok(Event::Eof) => break,
+            Err(error) => return Err(CsdlParseError::Xml(error)),
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(block)
 }

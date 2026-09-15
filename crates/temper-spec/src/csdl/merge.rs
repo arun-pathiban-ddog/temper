@@ -1,6 +1,6 @@
 //! Merge two [`CsdlDocument`]s by combining their schemas.
 
-use super::types::{CsdlDocument, EntityContainer, Schema};
+use super::types::{CsdlDocument, EntityContainer, Schema, TargetedAnnotations};
 
 /// Merge two CSDL documents by combining their schemas.
 ///
@@ -61,6 +61,11 @@ fn merge_schema(schemas: &mut Vec<Schema>, incoming_schema: &Schema) {
         &incoming_schema.annotations,
         |item| item.term.as_str(),
     );
+    merge_replace_by_key(
+        &mut result_schema.targeted_annotations,
+        &incoming_schema.targeted_annotations,
+        TargetedAnnotations::key,
+    );
 }
 
 fn merge_entity_container(containers: &mut Vec<EntityContainer>, incoming: &EntityContainer) {
@@ -102,6 +107,21 @@ where
             target.push(item.clone());
         }
     }
+}
+
+/// Replaces every existing item whose key the incoming set carries with the
+/// incoming items of that key, keeping the rest. Unlike `merge_replace_by_name`
+/// this keeps several incoming items per key: a document may split one
+/// target's annotations across blocks, and each block must land.
+fn merge_replace_by_key<T, K, F>(target: &mut Vec<T>, incoming: &[T], key: F)
+where
+    T: Clone,
+    K: PartialEq,
+    F: Fn(&T) -> K + Copy,
+{
+    let incoming_keys: Vec<K> = incoming.iter().map(key).collect();
+    target.retain(|t| !incoming_keys.contains(&key(t)));
+    target.extend(incoming.iter().cloned());
 }
 
 fn merge_append_missing_by_name<T, F>(target: &mut Vec<T>, incoming: &[T], name: F)
@@ -218,6 +238,61 @@ mod tests {
             matches!(&twin.value, crate::csdl::types::AnnotationValue::String(s) if s == "Deep Sci-Fi")
         );
         assert!(schema.annotations.iter().any(|a| a.term == "Temper.Keep"));
+    }
+
+    #[test]
+    fn merge_replaces_targeted_annotation_blocks_by_target() {
+        let existing_xml = r#"<?xml version="1.0"?>
+        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+          <edmx:DataServices>
+            <Schema Namespace="App" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+              <Annotations Target="App.Order/OwnerId"><Annotation Term="Temper.References" String="User"/></Annotations>
+              <Annotations Target="App.Order/ProjectId"><Annotation Term="Temper.References" String="Project"/></Annotations>
+            </Schema>
+          </edmx:DataServices>
+        </edmx:Edmx>"#;
+        let incoming_xml = r#"<?xml version="1.0"?>
+        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+          <edmx:DataServices>
+            <Schema Namespace="App" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+              <Annotations Target="App.Order/OwnerId"><Annotation Term="Temper.References" String="User,Team"/></Annotations>
+              <Annotations Target="App.Task/OwnerId"><Annotation Term="Temper.References" String="User"/></Annotations>
+              <Annotations Target="App.Order/OwnerId" Qualifier="alt"><Annotation Term="Temper.References" String="Bot"/></Annotations>
+              <Annotations Target="App.Task/OwnerId"><Annotation Term="Temper.ReferenceShape" String="json_list"/></Annotations>
+            </Schema>
+          </edmx:DataServices>
+        </edmx:Edmx>"#;
+        let merged = merge_csdl(
+            &parse_csdl(existing_xml).unwrap(),
+            &parse_csdl(incoming_xml).unwrap(),
+        );
+        let blocks = &merged.schemas[0].targeted_annotations;
+        assert_eq!(
+            blocks.len(),
+            5,
+            "replaced one, kept one, added one, a qualified block on the same target stays distinct, and a target split across two incoming blocks keeps both"
+        );
+        assert_eq!(
+            blocks
+                .iter()
+                .filter(|b| b.target == "App.Task/OwnerId")
+                .count(),
+            2
+        );
+        let alt = blocks
+            .iter()
+            .find(|b| b.qualifier.as_deref() == Some("alt"))
+            .unwrap();
+        assert_eq!(alt.target, "App.Order/OwnerId");
+        let owner = blocks
+            .iter()
+            .find(|b| b.target == "App.Order/OwnerId")
+            .unwrap();
+        assert!(
+            matches!(&owner.annotations[0].value, crate::csdl::types::AnnotationValue::String(s) if s == "User,Team")
+        );
+        assert!(blocks.iter().any(|b| b.target == "App.Order/ProjectId"));
+        assert!(blocks.iter().any(|b| b.target == "App.Task/OwnerId"));
     }
 
     #[test]

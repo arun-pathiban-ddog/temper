@@ -21,6 +21,30 @@ pub struct Schema {
     /// Annotations on the schema itself (direct children of `<Schema>`), such
     /// as `Temper.Twin`, which marks a twin schema and carries its name.
     pub annotations: Vec<Annotation>,
+    /// `<Annotations Target="Ns.Type/Property">` blocks: annotations applied to
+    /// something from outside it. The DSF twin declares its reference edges
+    /// this way (`Temper.References` on a property).
+    pub targeted_annotations: Vec<TargetedAnnotations>,
+}
+
+/// An `<Annotations Target="…">` block: annotations aimed at one model element.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TargetedAnnotations {
+    /// The model element the block annotates, as `Ns.Type` or `Ns.Type/Property`.
+    pub target: String,
+    /// CSDL lets several blocks aim at one target, told apart by qualifier.
+    pub qualifier: Option<String>,
+    /// The annotations applied to the target.
+    pub annotations: Vec<Annotation>,
+}
+
+impl TargetedAnnotations {
+    /// The identity of a block: its target and qualifier together, compared
+    /// as a pair rather than joined into one string, since an annotation path
+    /// may itself contain any delimiter.
+    pub fn key(&self) -> (String, Option<String>) {
+        (self.target.clone(), self.qualifier.clone())
+    }
 }
 
 /// An OData EntityType.

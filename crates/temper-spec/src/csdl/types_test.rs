@@ -10,6 +10,7 @@ fn sample_schema() -> Schema {
         entity_containers: vec![],
         terms: vec![],
         annotations: vec![],
+        targeted_annotations: vec![],
     }
 }
 
@@ -208,6 +209,7 @@ fn csdl_document_schemas_by_namespace() {
                 entity_containers: vec![],
                 terms: vec![],
                 annotations: vec![],
+                targeted_annotations: vec![],
             },
         ],
     };
