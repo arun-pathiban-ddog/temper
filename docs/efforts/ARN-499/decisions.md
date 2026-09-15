@@ -801,6 +801,8 @@ that tenant's own endpoint — it learns nothing it was not already being told.
 **Not dismissed.** Filed as ARN-507 so the provenance gap is a tracked piece of
 work rather than a comment nobody finds.
 
+**Where.** `crates/temper-server/src/http_endpoint.rs` (`route_from_entity_fields`).
+
 ## D29: The legacy blob read is bounded in time as well as size
 
 **Decision:** Wrap the legacy database read in `BLOB_BUFFERED_OPERATION_TIMEOUT`,
