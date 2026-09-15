@@ -18,6 +18,9 @@ pub struct Schema {
     pub functions: Vec<Function>,
     pub entity_containers: Vec<EntityContainer>,
     pub terms: Vec<Term>,
+    /// Annotations on the schema itself (direct children of `<Schema>`), such
+    /// as `Temper.Twin`, which marks a twin schema and carries its name.
+    pub annotations: Vec<Annotation>,
 }
 
 /// An OData EntityType.

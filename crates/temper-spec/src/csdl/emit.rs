@@ -32,6 +32,9 @@ fn emit_schema(out: &mut String, schema: &Schema) {
     for term in &schema.terms {
         emit_term(out, term);
     }
+    for ann in &schema.annotations {
+        emit_annotation(out, ann, 6);
+    }
     for enum_type in &schema.enum_types {
         emit_enum_type(out, enum_type);
     }
@@ -362,104 +365,5 @@ fn xml_escape(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::csdl::parse_csdl;
-
-    #[test]
-    fn emit_round_trips_minimal_csdl() {
-        let xml = r#"<?xml version="1.0"?>
-        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
-          <edmx:DataServices>
-            <Schema Namespace="Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
-              <EntityType Name="Widget">
-                <Key><PropertyRef Name="Id"/></Key>
-                <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
-                <Property Name="Name" Type="Edm.String"/>
-              </EntityType>
-              <EntityContainer Name="Svc">
-                <EntitySet Name="Widgets" EntityType="Test.Widget"/>
-              </EntityContainer>
-            </Schema>
-          </edmx:DataServices>
-        </edmx:Edmx>"#;
-
-        let doc = parse_csdl(xml).unwrap();
-        let emitted = emit_csdl_xml(&doc);
-
-        // Parse the emitted XML back and verify structure is preserved.
-        let doc2 = parse_csdl(&emitted).expect("emitted XML should re-parse");
-        assert_eq!(doc2.version, "4.0");
-        assert_eq!(doc2.schemas.len(), 1);
-        let schema = &doc2.schemas[0];
-        assert_eq!(schema.namespace, "Test");
-        assert_eq!(schema.entity_types.len(), 1);
-        assert_eq!(schema.entity_types[0].name, "Widget");
-        assert_eq!(schema.entity_types[0].key_properties, vec!["Id"]);
-        assert_eq!(schema.entity_types[0].properties.len(), 2);
-        assert_eq!(schema.entity_containers.len(), 1);
-        assert_eq!(schema.entity_containers[0].entity_sets.len(), 1);
-        assert_eq!(
-            schema.entity_containers[0].entity_sets[0].entity_type,
-            "Test.Widget"
-        );
-    }
-
-    #[test]
-    fn emit_round_trips_has_stream() {
-        let xml = r#"<?xml version="1.0"?>
-        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
-          <edmx:DataServices>
-            <Schema Namespace="Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
-              <EntityType Name="MediaFile" HasStream="true">
-                <Key><PropertyRef Name="Id"/></Key>
-                <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
-                <Property Name="Name" Type="Edm.String"/>
-              </EntityType>
-              <EntityType Name="RegularEntity">
-                <Key><PropertyRef Name="Id"/></Key>
-                <Property Name="Id" Type="Edm.Guid" Nullable="false"/>
-              </EntityType>
-            </Schema>
-          </edmx:DataServices>
-        </edmx:Edmx>"#;
-
-        let doc = parse_csdl(xml).unwrap();
-        let schema = &doc.schemas[0];
-
-        let media = schema.entity_type("MediaFile").unwrap();
-        assert!(media.has_stream, "MediaFile should have has_stream=true");
-
-        let regular = schema.entity_type("RegularEntity").unwrap();
-        assert!(
-            !regular.has_stream,
-            "RegularEntity should have has_stream=false"
-        );
-
-        // Round-trip
-        let emitted = emit_csdl_xml(&doc);
-        let doc2 = parse_csdl(&emitted).unwrap();
-        let schema2 = &doc2.schemas[0];
-
-        assert!(schema2.entity_type("MediaFile").unwrap().has_stream);
-        assert!(!schema2.entity_type("RegularEntity").unwrap().has_stream);
-    }
-
-    #[test]
-    fn emit_round_trips_reference_csdl() {
-        let xml = include_str!("../../../../test-fixtures/specs/model.csdl.xml");
-        let doc = parse_csdl(xml).unwrap();
-        let emitted = emit_csdl_xml(&doc);
-
-        let doc2 = parse_csdl(&emitted).expect("emitted reference CSDL should re-parse");
-        assert_eq!(doc2.schemas.len(), doc.schemas.len());
-
-        // Verify entity types are preserved.
-        for (s1, s2) in doc.schemas.iter().zip(doc2.schemas.iter()) {
-            assert_eq!(s1.namespace, s2.namespace);
-            assert_eq!(s1.entity_types.len(), s2.entity_types.len());
-            assert_eq!(s1.actions.len(), s2.actions.len());
-            assert_eq!(s1.entity_containers.len(), s2.entity_containers.len());
-        }
-    }
-}
+#[path = "emit_test.rs"]
+mod tests;

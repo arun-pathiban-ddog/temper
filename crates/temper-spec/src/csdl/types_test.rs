@@ -9,6 +9,7 @@ fn sample_schema() -> Schema {
         functions: sample_functions(),
         entity_containers: vec![],
         terms: vec![],
+        annotations: vec![],
     }
 }
 
@@ -206,6 +207,7 @@ fn csdl_document_schemas_by_namespace() {
                 functions: vec![],
                 entity_containers: vec![],
                 terms: vec![],
+                annotations: vec![],
             },
         ],
     };

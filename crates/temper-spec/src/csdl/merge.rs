@@ -54,6 +54,13 @@ fn merge_schema(schemas: &mut Vec<Schema>, incoming_schema: &Schema) {
     merge_append_missing_by_name(&mut result_schema.terms, &incoming_schema.terms, |item| {
         item.name.as_str()
     });
+    // A schema-level annotation describes the schema (`Temper.Twin` names a
+    // twin), so the incoming value for a term is the current one.
+    merge_replace_by_name(
+        &mut result_schema.annotations,
+        &incoming_schema.annotations,
+        |item| item.term.as_str(),
+    );
 }
 
 fn merge_entity_container(containers: &mut Vec<EntityContainer>, incoming: &EntityContainer) {
@@ -161,6 +168,56 @@ mod tests {
         assert_eq!(container.entity_sets.len(), 2);
         assert!(container.entity_sets.iter().any(|e| e.name == "Orders"));
         assert!(container.entity_sets.iter().any(|e| e.name == "Tasks"));
+    }
+
+    #[test]
+    fn merge_carries_schema_annotations_from_incoming() {
+        let existing_xml = r#"<?xml version="1.0"?>
+        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+          <edmx:DataServices>
+            <Schema Namespace="App" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+              <Annotation Term="Temper.Twin" String="Old Name"/>
+              <Annotation Term="Temper.Keep" String="kept"/>
+              <EntityType Name="Order">
+                <Key><PropertyRef Name="Id"/></Key>
+                <Property Name="Id" Type="Edm.String" Nullable="false"/>
+              </EntityType>
+            </Schema>
+          </edmx:DataServices>
+        </edmx:Edmx>"#;
+
+        let incoming_xml = r#"<?xml version="1.0"?>
+        <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+          <edmx:DataServices>
+            <Schema Namespace="App" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+              <Annotation Term="Temper.Twin" String="Deep Sci-Fi"/>
+              <EntityType Name="Task">
+                <Key><PropertyRef Name="Id"/></Key>
+                <Property Name="Id" Type="Edm.String" Nullable="false"/>
+              </EntityType>
+            </Schema>
+          </edmx:DataServices>
+        </edmx:Edmx>"#;
+
+        let existing = parse_csdl(existing_xml).unwrap();
+        let incoming = parse_csdl(incoming_xml).unwrap();
+        let merged = merge_csdl(&existing, &incoming);
+
+        let schema = &merged.schemas[0];
+        assert_eq!(
+            schema.annotations.len(),
+            2,
+            "incoming replaces by term, the rest stays"
+        );
+        let twin = schema
+            .annotations
+            .iter()
+            .find(|a| a.term == "Temper.Twin")
+            .unwrap();
+        assert!(
+            matches!(&twin.value, crate::csdl::types::AnnotationValue::String(s) if s == "Deep Sci-Fi")
+        );
+        assert!(schema.annotations.iter().any(|a| a.term == "Temper.Keep"));
     }
 
     #[test]
