@@ -238,6 +238,22 @@ async fn anonymous_public_bundle(
     // an earlier version of this checked only the root repository, so a public
     // app that depended on a private one exported the private one too.
     super::auth::validate_tenant_id(tenant)?;
+
+    // Admission bound. This path is reachable with no credential at all, and
+    // exporting a bundle materializes a whole dependency closure — the most
+    // memory an anonymous request can make this kernel spend. The per-bundle
+    // budgets bound ONE export; nothing bounded how many run at once. A small
+    // process-wide cap, refused rather than queued: an anonymous caller gets
+    // 503 and can retry, and a burst cannot pile up materializations.
+    let Ok(_permit) = anonymous_bundle_admission().try_acquire() else {
+        tracing::warn!(
+            tenant,
+            owner,
+            name,
+            "anonymous Genesis bundle export refused: at capacity"
+        );
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    };
     match crate::genesis_install::export_genesis_registry_bundle_for(
         state,
         tenant,
@@ -270,5 +286,40 @@ async fn anonymous_public_bundle(
                 })),
             ))
         }
+    }
+}
+
+/// How many anonymous bundle exports may run at once, process-wide.
+///
+/// Deliberately small. Each export can materialize up to
+/// `MAX_GENESIS_BUNDLE_APPS` app trees, and the caller presented nothing that
+/// would let us charge the cost to anyone. Authenticated exports are governed
+/// by Cedar per caller and are not subject to this cap.
+const MAX_CONCURRENT_ANONYMOUS_BUNDLE_EXPORTS: usize = 4;
+
+fn anonymous_bundle_admission() -> &'static tokio::sync::Semaphore {
+    static ADMISSION: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    ADMISSION.get_or_init(|| tokio::sync::Semaphore::new(MAX_CONCURRENT_ANONYMOUS_BUNDLE_EXPORTS))
+}
+
+#[cfg(test)]
+mod anonymous_admission_tests {
+    use super::*;
+
+    #[test]
+    fn the_anonymous_bundle_cap_refuses_rather_than_queues_when_full() {
+        let admission = anonymous_bundle_admission();
+        let held: Vec<_> = (0..MAX_CONCURRENT_ANONYMOUS_BUNDLE_EXPORTS)
+            .map(|_| admission.try_acquire().expect("capacity available"))
+            .collect();
+        assert!(
+            admission.try_acquire().is_err(),
+            "the request past the cap must be refused, not queued behind a materialization"
+        );
+        drop(held);
+        assert!(
+            admission.try_acquire().is_ok(),
+            "capacity returns when an export finishes"
+        );
     }
 }

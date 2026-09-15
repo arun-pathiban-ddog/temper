@@ -819,3 +819,25 @@ second constant is a second thing to keep aligned. "Rare" describes today's data
 not the code.
 
 **Where.** `crates/temper-server/src/blob_store/state.rs`.
+
+## D30: Anonymous bundle exports are admission-bounded, refused rather than queued
+
+**Decision:** Cap concurrent anonymous bundle exports process-wide (4), and
+answer 503 when the cap is reached instead of queueing.
+
+**Came up because:** The final review round (codex) noted the anonymous bundle
+path — reachable with no credential — materializes a whole dependency closure
+with per-bundle size budgets but nothing bounding how many run at once. That is
+the most memory an unauthenticated request can make the kernel spend.
+
+**Options:** A queue with a wait bound; a per-IP limiter; a small global cap that
+refuses.
+
+**Chose the refusing cap because** queueing lets a burst pile up the exact cost
+the bound exists to prevent, and a per-IP limiter is more machinery than an
+anonymous public read deserves. An anonymous caller can retry; a kernel cannot
+un-materialize. Authenticated exports are governed per caller by Cedar and are
+not subject to it.
+
+**Where.** `crates/temper-platform/src/tenant_api/apps.rs`, tested by
+`the_anonymous_bundle_cap_refuses_rather_than_queues_when_full`.
