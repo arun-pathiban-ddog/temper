@@ -92,32 +92,49 @@ jobs:
       - name: Apply owner adjudications (RESOLVE comments)
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
         run: |
           python3 - <<'PY'
           import json, os, re, subprocess
-          n=os.environ["PR_NUM"]
+          n=os.environ["PR_NUM"]; head=os.environ["PR_HEAD"]
+          # A ruling is a comment that BEGINS with RESOLVE: lines, written by the
+          # repo owner, a member or a collaborator - anyone else's RESOLVE: is
+          # discussion. A quoted RESOLVE: mid-comment is never a ruling: the
+          # first non-RESOLVE line ends the rulings. Every ruling names the head
+          # it is for: RESOLVE: <file:line> @<head-sha> <reason>
           raw=subprocess.run(["gh","api",f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/issues/{n}/comments",
-                              "--paginate","-q",".[].body | @base64"],capture_output=True,text=True).stdout
+                              "--paginate","-q",'.[] | select(.author_association=="OWNER" or .author_association=="MEMBER" or .author_association=="COLLABORATOR") | .body | @base64'],
+                             capture_output=True,text=True).stdout
           import base64 as _b64
           comments=[_b64.b64decode(l).decode() for l in raw.split() if l]
+          # A ruling is bound to one head: "RESOLVE: <target> @<sha-prefix> <reason>".
+          # Without the @sha it is ignored, so a ruling on one head can never
+          # silently clear a later one - the code after it has not been ruled on.
           resolutions={}
-          # an adjudication comment BEGINS with RESOLVE: (same contract as intake) -
-          # a quoted RESOLVE: mid-comment is discussion, not a ruling
           for c in comments:
               if not c.strip().startswith("RESOLVE:"): continue
-              # rulings are the comment's leading RESOLVE: lines only - the first
-              # other line ends them, so quoted syntax below cannot adjudicate
               for line in c.strip().splitlines():
-                  m = re.match(r"RESOLVE:\s*(\S+)\s+(.+)$", line)
-                  if not m: break
-                  resolutions[m.group(1)]=m.group(2).strip()
+                  m = re.match(r"RESOLVE:\s*(\S+)\s+@([0-9a-fA-F]{7,40})\s+(.+)$", line)
+                  if not m:
+                      if line.startswith("RESOLVE:"): print(f"ignored ruling without @<head-sha>: {line[:80]}")
+                      break
+                  if not head.lower().startswith(m.group(2).lower()):
+                      print(f"ruling for another head ({m.group(2)}), ignored: {line[:80]}"); continue
+                  resolutions[m.group(1)]=m.group(3).strip()
           if resolutions:
               r=json.load(open(".review/review.json")); hit=0
               for f in r.get("findings",[]):
                   fl=f.get("file_line","")
                   if fl in resolutions and not f.get("resolved"):
                       f["resolved"]=True; f["resolution"]=f"owner adjudication: {resolutions[fl]}"; hit+=1
+              # "RESOLVE: fix-it @<head-sha> <reason>" is the owner overruling
+              # the fix-it rubric for this head only. After the two-round cap it
+              # is how "merge" becomes executable without forging a record; the
+              # reason stays on the record.
+              if "fix-it" in resolutions and r.get("fix_it_failed"):
+                  r["fix_it_failed"]=False
+                  r["fix_it_overruled"]=f"owner adjudication: {resolutions['fix-it']}"; hit+=1
               json.dump(r,open(".review/review.json","w"),indent=2)
               print(f"adjudications applied: {hit}")
           PY
@@ -125,6 +142,9 @@ jobs:
         id: validate
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          # Repo variable. Unset means the model majority. Set to 1 where records
+          # come from the shared computer and not every reviewer CLI is logged in.
+          SDLC_MIN_MODEL_REVIEWERS: ${{ vars.SDLC_MIN_MODEL_REVIEWERS }}
         run: python3 /tmp/stack/review/validate.py .review/review.json --require-commit "$PR_HEAD"
       - name: Route on the panel's risk judgment
         env:
