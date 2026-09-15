@@ -92,27 +92,35 @@ jobs:
       - name: Apply owner adjudications (RESOLVE comments)
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
         run: |
           python3 - <<'PY'
           import json, os, re, subprocess
-          n=os.environ["PR_NUM"]
+          n=os.environ["PR_NUM"]; head=os.environ["PR_HEAD"]
           # A ruling is a comment that BEGINS with RESOLVE: lines, written by the
           # repo owner or a member - anyone else's RESOLVE: is discussion. A
           # quoted RESOLVE: mid-comment is never a ruling: the first non-RESOLVE
           # line ends the rulings.
           raw=subprocess.run(["gh","api",f"repos/{os.environ.get('GITHUB_REPOSITORY','')}/issues/{n}/comments",
-                              "--paginate","-q",'.[] | select(.author_association=="OWNER" or .author_association=="MEMBER") | .body | @base64'],
+                              "--paginate","-q",'.[] | select(.author_association=="OWNER" or .author_association=="MEMBER" or .author_association=="COLLABORATOR") | .body | @base64'],
                              capture_output=True,text=True).stdout
           import base64 as _b64
           comments=[_b64.b64decode(l).decode() for l in raw.split() if l]
+          # A ruling is bound to one head: "RESOLVE: <target> @<sha-prefix> <reason>".
+          # Without the @sha it is ignored, so a ruling on one head can never
+          # silently clear a later one - the code after it has not been ruled on.
           resolutions={}
           for c in comments:
               if not c.strip().startswith("RESOLVE:"): continue
               for line in c.strip().splitlines():
-                  m = re.match(r"RESOLVE:\s*(\S+)\s+(.+)$", line)
-                  if not m: break
-                  resolutions[m.group(1)]=m.group(2).strip()
+                  m = re.match(r"RESOLVE:\s*(\S+)\s+@([0-9a-fA-F]{7,40})\s+(.+)$", line)
+                  if not m:
+                      if line.startswith("RESOLVE:"): print(f"ignored ruling without @<head-sha>: {line[:80]}")
+                      break
+                  if not head.lower().startswith(m.group(2).lower()):
+                      print(f"ruling for another head ({m.group(2)}), ignored: {line[:80]}"); continue
+                  resolutions[m.group(1)]=m.group(3).strip()
           if resolutions:
               r=json.load(open(".review/review.json")); hit=0
               for f in r.get("findings",[]):
@@ -133,7 +141,6 @@ jobs:
         id: validate
         env:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-        env:
           # Repo variable. Unset means the model majority. Set to 1 where records
           # come from the shared computer and not every reviewer CLI is logged in.
           SDLC_MIN_MODEL_REVIEWERS: ${{ vars.SDLC_MIN_MODEL_REVIEWERS }}
