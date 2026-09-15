@@ -126,6 +126,92 @@ fn order_confirm_triggers_payment_authorize() {
 }
 
 // =========================================================================
+// Past the advisory threshold, a rule still dispatches
+// =========================================================================
+
+/// A tenant carrying more reaction rules than `MAX_REACTIONS_PER_TENANT` still
+/// dispatches the rule that matters, all the way to the target entity's status.
+///
+/// This is the regression for the 2026-09-10 outage: `register_tenant_rules`
+/// asserted on that count, so a tenant on its fifteenth app panicked at startup
+/// while replaying specs already committed to disk. The registry test proves
+/// every rule is registered and found; this one proves the last rule past the
+/// old ceiling still runs guard evaluation, target resolution and dispatch, and
+/// actually moves the target.
+#[test]
+fn a_rule_past_the_advisory_threshold_still_dispatches() {
+    let (_guard, clock, _id_gen) = install_deterministic_context(42);
+
+    let over = temper_server::trigger::types::MAX_REACTIONS_PER_TENANT + 44;
+    let mut rules: Vec<ReactionRule> = (0..over - 1)
+        .map(|i| ReactionRule {
+            name: format!("filler_{i}"),
+            when: ReactionTrigger {
+                // Inert: these never match the Order flow driven below.
+                entity_type: format!("Filler{i}"),
+                action: Some("Poke".to_string()),
+                to_state: None,
+                guard: None,
+            },
+            then: ReactionTarget {
+                entity_type: "Payment".to_string(),
+                action: "FailPayment".to_string(),
+                params: serde_json::json!({}),
+                params_from: std::collections::BTreeMap::new(),
+            },
+            resolve_target: TargetResolver::SameId,
+            principal: None,
+        })
+        .collect();
+
+    // The rule that must survive is the last one registered, well past the
+    // ceiling the assertion used to abort on.
+    rules.push(ReactionRule {
+        name: "order_confirmed_triggers_payment".to_string(),
+        when: ReactionTrigger {
+            entity_type: "Order".to_string(),
+            action: Some("ConfirmOrder".to_string()),
+            to_state: Some("Confirmed".to_string()),
+            guard: None,
+        },
+        then: ReactionTarget {
+            entity_type: "Payment".to_string(),
+            action: "AuthorizePayment".to_string(),
+            params: serde_json::json!({}),
+            params_from: std::collections::BTreeMap::new(),
+        },
+        resolve_target: TargetResolver::SameId,
+        principal: None,
+    });
+    assert_eq!(rules.len(), over);
+
+    let mut reg = ReactionRegistry::new();
+    // Before the fix this call panicked, taking the process down.
+    reg.register_tenant_rules("crowded", rules);
+
+    let mut sys = SimReactionSystem::new(sim_config(), reg, "crowded");
+    sys.register_entity("order-e9", "Order", "e9", order_table());
+    sys.register_entity("payment-e9", "Payment", "e9", payment_table());
+
+    clock.advance();
+    sys.step("order-e9", "AddItem", r#"{"ProductId":"laptop"}"#)
+        .unwrap();
+    clock.advance();
+    sys.step("order-e9", "SubmitOrder", "{}").unwrap();
+    clock.advance();
+    sys.step("order-e9", "ConfirmOrder", "{}").unwrap();
+
+    sys.assert_status("order-e9", "Confirmed");
+    sys.assert_status("payment-e9", "Authorized");
+
+    let results = sys.last_results();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].success);
+    assert_eq!(results[0].rule_name, "order_confirmed_triggers_payment");
+    assert_eq!(results[0].target_status.as_deref(), Some("Authorized"));
+}
+
+// =========================================================================
 // No infinite loop test
 // =========================================================================
 

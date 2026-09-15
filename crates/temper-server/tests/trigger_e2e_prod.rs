@@ -322,6 +322,130 @@ permit(
     );
 }
 
+/// A tenant carrying more reaction rules than `MAX_REACTIONS_PER_TENANT` boots
+/// and still fires its inline trigger through the production dispatcher.
+///
+/// This is the regression for the 2026-09-10 outage. `build_reaction_registry`
+/// calls `register_tenant_rules` with the tenant's whole rule set, and that
+/// call asserted on the count. The tenant's fifteenth app took it to 265 rules,
+/// so the panic happened at startup while replaying specs already committed to
+/// disk, and the platform crash-looped. It also meant a trigger that was never
+/// registered dispatched nothing and logged nothing.
+///
+/// The path exercised here is the one that failed: registry registration, then
+/// `rebuild_reaction_dispatcher`, then a real dispatch that must move a second
+/// entity. The rules come in as `reactions.toml` rules, the way an app that
+/// crowds a tenant supplies them.
+#[tokio::test]
+async fn a_tenant_past_the_advisory_threshold_boots_and_still_fires_its_trigger() {
+    use temper_server::trigger::types::{
+        MAX_REACTIONS_PER_TENANT, ReactionRule, ReactionTarget, ReactionTrigger, TargetResolver,
+    };
+
+    let tenant_name = "trigger-e2e-crowded";
+    let tenant = TenantId::new(tenant_name);
+
+    // Inert filler rules on entity types this tenant never dispatches, purely
+    // to carry the count past the threshold - the shape of a tenant hosting
+    // many apps, where no single app is at fault for the total.
+    let filler: Vec<ReactionRule> = (0..MAX_REACTIONS_PER_TENANT + 9)
+        .map(|i| ReactionRule {
+            name: format!("filler_{i}"),
+            when: ReactionTrigger {
+                entity_type: format!("Filler{i}"),
+                action: Some("Poke".to_string()),
+                to_state: None,
+                guard: None,
+            },
+            then: ReactionTarget {
+                entity_type: "Payment".to_string(),
+                action: "AuthorizePayment".to_string(),
+                params: serde_json::json!({}),
+                params_from: std::collections::BTreeMap::new(),
+            },
+            resolve_target: TargetResolver::SameId,
+            principal: None,
+        })
+        .collect();
+    assert!(filler.len() > MAX_REACTIONS_PER_TENANT);
+
+    let mut registry = SpecRegistry::new();
+    let csdl = parse_csdl(CSDL_XML).expect("CSDL should parse");
+    registry
+        .try_register_tenant_with_reactions(
+            tenant_name,
+            csdl,
+            CSDL_XML.to_string(),
+            &[("Order", ORDER_IOA), ("Payment", PAYMENT_IOA)],
+            filler,
+        )
+        .expect("registration should succeed past the advisory threshold");
+
+    let system = ActorSystem::new("trigger-e2e-crowded");
+    let state = ServerState::from_registry(system, registry);
+    state
+        .authz
+        .reload_tenant_policies(
+            tenant_name,
+            r#"
+permit(
+    principal is Agent,
+    action == Action::"AuthorizePayment",
+    resource is Payment
+) when {
+    principal.agent_type == "payment-service"
+};
+"#,
+        )
+        .expect("tenant policy should load");
+    // Before the fix this panicked: the rule count crossed the assertion while
+    // the registry was being built from specs already accepted.
+    state.rebuild_reaction_dispatcher();
+
+    let pay_id = "pay-crowded";
+    let order_id = "order-crowded";
+    dispatch(
+        &state,
+        &tenant,
+        "Order",
+        order_id,
+        "AddItem",
+        serde_json::json!({ "payment_id": pay_id }),
+    )
+    .await;
+    dispatch(
+        &state,
+        &tenant,
+        "Order",
+        order_id,
+        "SubmitOrder",
+        serde_json::json!({}),
+    )
+    .await;
+    let resp = dispatch(
+        &state,
+        &tenant,
+        "Order",
+        order_id,
+        "ConfirmOrder",
+        serde_json::json!({}),
+    )
+    .await;
+    assert!(resp.success, "Order.ConfirmOrder should succeed");
+    assert_eq!(resp.state.status, "Confirmed");
+
+    tokio::task::yield_now().await;
+
+    let pay_resp = state
+        .get_tenant_entity_state(&tenant, "Payment", pay_id)
+        .await
+        .expect("payment should exist after the trigger fired");
+    assert_eq!(
+        pay_resp.state.status, "Authorized",
+        "a crowded tenant must still dispatch its inline trigger"
+    );
+}
+
 #[tokio::test]
 async fn inline_action_triggers_respect_tenant_cedar_denials() {
     let tenant = TenantId::new("trigger-e2e-deny");

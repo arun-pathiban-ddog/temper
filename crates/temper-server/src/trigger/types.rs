@@ -6,11 +6,25 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// Maximum reaction rules per tenant (TigerStyle budget).
+/// Advisory threshold for a tenant's reaction-rule count. **Not a maximum.**
+///
+/// [`register_tenant_rules`](super::registry::ReactionRegistry::register_tenant_rules)
+/// warns above this number and registers every rule anyway. It asserted until
+/// 2026-09-10, when a tenant's fifteenth app took it to 265 rules and the panic
+/// crash-looped the platform at startup. Nothing is preallocated from this
+/// constant: rules live in growable `BTreeMap`s, so exceeding it corrupts
+/// nothing. A consumer must not reject a tenant for being above it. See
+/// ADR-0176; [`MAX_REACTION_DEPTH`] is the bound that is still enforced.
 pub const MAX_REACTIONS_PER_TENANT: usize = 256;
 
 /// Maximum cascade depth for recursive reaction dispatch (TigerStyle budget).
-pub const MAX_REACTION_DEPTH: u32 = 8;
+///
+/// Owned by `temper-runtime` and re-exported here so the two crates cannot
+/// disagree. Three sites enforce it: the production dispatcher, the simulation
+/// dispatcher, and `RequestContext`'s callback depth. Until this re-export they
+/// read two independently defined copies of the number; nothing kept them
+/// equal, and ADR-0176 rests on this bound being the one that still holds.
+pub use temper_runtime::reaction::MAX_REACTION_DEPTH;
 
 /// Maximum nesting depth for composite reaction guards
 /// (`AllOf` / `AnyOf` / `Not`). TigerStyle: bound budgets rather than hope.

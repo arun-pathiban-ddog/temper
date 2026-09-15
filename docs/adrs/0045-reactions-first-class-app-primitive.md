@@ -9,6 +9,7 @@
   - `crates/temper-server/src/reaction/` (ReactionDispatcher, registry, resolver, types)
   - `crates/temper-server/src/state/dispatch/cross_entity.rs` (cross-entity guard fetch helper to reuse)
   - `os-apps/temper-fs/reactions/reactions.toml` (only production consumer of hand-authored reactions today)
+  - ADR-0176: a budget asserts only what it actually bounds (supersedes this ADR's `MAX_REACTIONS_PER_TENANT` enforcement)
 
 ## Context
 
@@ -150,6 +151,10 @@ All five land in one PR.
 - **No change to fire-and-forget semantics.** Reactions remain non-transactional.
 - **No expression DSL.** The issue's `"job_type eq 'source_search'"` syntax is rendered as structured enum TOML. Adding a parser is a larger commitment than this track scopes.
 - **No change to `MAX_REACTION_DEPTH` (8) or `MAX_REACTIONS_PER_TENANT` (256).**
+  (Superseded in part by ADR-0176: `MAX_REACTIONS_PER_TENANT` is no longer
+  enforced. It is an advisory warning threshold; the assertion it carried
+  crash-looped the platform on 2026-09-10 and was removed. `MAX_REACTION_DEPTH`
+  is unaffected and still enforced.)
 - **No fusion with the action layer.** See Sub-Decision 5.
 - **No changes to `paw-fs` reactions or `[[agent_trigger]]` synthesis.** Both remain byte-identical.
 - **No katagami-curation rewrite in this track.** Katagami consumes the new primitives after this PR merges; that rewrite is a separate track in katagami's repo.
