@@ -132,18 +132,88 @@ impl ServerState {
 
     /// Open a tenant-scoped object-store blob as a bounded stream.
     ///
-    /// Large field-overflow objects are never read from the legacy database
-    /// fallback because that interface is buffered; callers receive `Missing`
-    /// and can retain the media descriptor instead.
+    /// Objects within the caller's ceiling fall back to the legacy database
+    /// store when the object store does not have them, so this agrees with
+    /// [`Self::get_blob_with_legacy_fallback`] about what exists. Anything above
+    /// the ceiling is still refused there rather than buffered, which is why
+    /// the fallback asks the store to bound the read instead of reading first.
     pub async fn stream_blob_object(
         &self,
         tenant: &TenantId,
         key: &str,
         max_bytes: u64,
     ) -> Result<super::BlobStreamRead, String> {
-        self.blob_store_for_tenant(tenant)?
-            .get_stream(key, max_bytes)
-            .await
+        match self.blob_store_for_tenant(tenant) {
+            Ok(store) => match store.get_stream(key, max_bytes).await {
+                Ok(super::BlobStreamRead::Missing) => {}
+                other => return other,
+            },
+            Err(error) => {
+                tracing::debug!(
+                    %key,
+                    %error,
+                    "object blob store unavailable for streaming read; trying legacy DB blob fallback"
+                );
+            }
+        }
+
+        // Objects written before the object-store migration live in the legacy
+        // DB blob store. `get_blob_with_legacy_fallback` already consults it, so
+        // without the same fallback here the streaming and non-streaming reads
+        // disagree about which objects exist: a Genesis app bundle reported
+        // "field overflow blob ... not found" for a blob the HTTP blob route
+        // served successfully at the same moment.
+        self.legacy_blob_stream(tenant, key, max_bytes).await
+    }
+
+    /// Read one object from the legacy DB blob store as a bounded stream.
+    async fn legacy_blob_stream(
+        &self,
+        tenant: &TenantId,
+        key: &str,
+        max_bytes: u64,
+    ) -> Result<super::BlobStreamRead, String> {
+        if tenant != &TenantId::default() {
+            return Ok(super::BlobStreamRead::Missing);
+        }
+        let Some(store) = self.metadata_store_for_tenant(tenant.as_str()).await else {
+            return Ok(super::BlobStreamRead::Missing);
+        };
+        // Bound before materializing. The legacy interface is buffered, which is
+        // why streaming reads skipped it originally; asking the store to refuse
+        // anything over the caller's ceiling keeps that intent — the fallback
+        // never pulls a large object into memory, it just stops pretending
+        // small ones do not exist.
+        let ceiling = usize::try_from(max_bytes).unwrap_or(usize::MAX);
+        // Hold the same blob I/O permit the object-store path takes. The read is
+        // bounded per caller but still buffered, so without the permit a burst
+        // of legacy reads is unbounded in aggregate — the ceiling limits one
+        // read, the semaphore limits how many happen at once.
+        let _permit = tokio::time::timeout(
+            super::BLOB_IO_QUEUE_TIMEOUT,
+            super::blob_io_semaphore().acquire_owned(),
+        )
+        .await
+        .map_err(|_| format!("legacy DB blob read for '{key}' timed out queueing for blob I/O"))?
+        .map_err(|error| format!("legacy DB blob I/O semaphore closed for '{key}': {error}"))?;
+        // Bounded in time as well as size, like every other buffered blob
+        // operation. This is an external database read holding a blob I/O
+        // permit: without a deadline a hung store would keep the permit and
+        // starve the readers queued behind it.
+        let Some(bytes) = tokio::time::timeout(
+            super::BLOB_BUFFERED_OPERATION_TIMEOUT,
+            store.get_blob_if_size_at_most(key, ceiling),
+        )
+        .await
+        .map_err(|_| format!("legacy DB blob read for '{key}' timed out"))?
+        .map_err(|error| format!("legacy DB blob read failed for '{key}': {error}"))?
+        else {
+            return Ok(super::BlobStreamRead::Missing);
+        };
+        tracing::debug!(%key, bytes = bytes.len(), "served blob from the legacy DB store");
+        Ok(super::BlobStreamRead::Found(
+            super::BlobObjectStream::from_bytes(bytes),
+        ))
     }
 
     fn local_blob_store(&self, tenant: &TenantId) -> Option<BlobStore> {

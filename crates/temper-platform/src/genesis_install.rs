@@ -20,6 +20,7 @@ mod blob_materialization;
 mod bundle_transport;
 mod bundles;
 mod cache_paths;
+mod object_lookup;
 use blob_materialization::{
     MAX_GENESIS_TREE_CANONICAL_BYTES, blob_content_len, canonical_field_len, git_object_body,
     materialize_blob_content_field, read_canonical_field_bounded,
@@ -33,6 +34,7 @@ use bundles::{safe_bundle_relative_path, write_bundle_app};
 use cache_paths::{
     app_cache_dir, replace_directory, validate_git_object_id, validate_identity_component,
 };
+use object_lookup::load_genesis_object;
 
 use crate::genesis_install_verify::{
     InstallVerifyDecision, classify_install_verify, mark_install_failed, platform_store,
@@ -1508,12 +1510,101 @@ impl GenesisClosureAdmission {
     }
 }
 
+/// Who is asking for a bundle, and therefore what the closure may contain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BundleAudience {
+    /// A caller the kernel authenticated. Cedar governs what it may read.
+    Authenticated,
+    /// No credential was presented. Every repository in the closure must be
+    /// public, not merely the one that was named.
+    Anonymous,
+}
+
+/// Export a pinned app bundle for an authenticated caller.
 pub async fn export_genesis_registry_bundle(
     platform: &PlatformState,
     registry_tenant: &str,
     owner: &str,
     name: &str,
     version_hash: &str,
+) -> Result<GenesisRegistryBundleResponse, String> {
+    export_genesis_registry_bundle_for(
+        platform,
+        registry_tenant,
+        owner,
+        name,
+        version_hash,
+        BundleAudience::Authenticated,
+    )
+    .await
+}
+
+/// Refuse unless this repository is public.
+///
+/// Called for each app as the closure is walked, BEFORE its tree is
+/// materialized. An app's bundle is its whole dependency closure, so "is this
+/// public?" is a question about every repository in it — and the check has to
+/// happen before the content is read, not after: resolving the closure
+/// materializes each tree in order to read its manifest, so a check that ran
+/// afterwards would already have written a private repository to disk.
+async fn refuse_unless_repository_is_public(
+    state: &ServerState,
+    tenant: &TenantId,
+    app: &GenesisAppBundle,
+) -> Result<(), String> {
+    if !state
+        .ensure_entity_loaded(tenant, "Repository", &app.repository_id)
+        .await
+    {
+        return Err(format!(
+            "Genesis bundle refused: repository {} for {}/{} could not be read",
+            app.repository_id, app.owner, app.name
+        ));
+    }
+    let repository = state
+        .get_tenant_entity_state(tenant, "Repository", &app.repository_id)
+        .await
+        .map_err(|error| {
+            format!(
+                "Genesis bundle refused: repository {} could not be read: {error}",
+                app.repository_id
+            )
+        })?;
+    let visibility = repository
+        .state
+        .fields
+        .get("Visibility")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if visibility != "public" {
+        tracing::warn!(
+            tenant = %tenant,
+            repository_id = %app.repository_id,
+            app = %app.name,
+            visibility,
+            "anonymous Genesis bundle refused: a repository in the closure is not public"
+        );
+        return Err(format!(
+            "Genesis bundle refused: {}/{} is not public",
+            app.owner, app.name
+        ));
+    }
+    Ok(())
+}
+
+/// Export a pinned app bundle, bounded by who is asking.
+///
+/// An app's bundle is its whole dependency closure, so "is this app public?" is
+/// a question about every repository in that closure, not about the one the
+/// caller named. A public app that depends on a private one must not become a
+/// way to read the private one anonymously.
+pub async fn export_genesis_registry_bundle_for(
+    platform: &PlatformState,
+    registry_tenant: &str,
+    owner: &str,
+    name: &str,
+    version_hash: &str,
+    audience: BundleAudience,
 ) -> Result<GenesisRegistryBundleResponse, String> {
     let tenant = TenantId::new(registry_tenant);
     let root = resolve_genesis_app_by_ref(
@@ -1531,7 +1622,7 @@ pub async fn export_genesis_registry_bundle(
         root.version_hash.trim_start_matches('@')
     );
     let cache_root = genesis_cache_root(&platform.server, &app_ref);
-    let closure = resolve_genesis_app_closure(&platform.server, &tenant, root).await?;
+    let closure = resolve_genesis_app_closure(&platform.server, &tenant, root, audience).await?;
     if closure.len() > MAX_GENESIS_BUNDLE_APPS {
         return Err(format!(
             "Genesis bundle closure contains {} apps; budget is {MAX_GENESIS_BUNDLE_APPS}",
@@ -1625,6 +1716,7 @@ async fn resolve_genesis_app_closure(
     state: &ServerState,
     tenant: &TenantId,
     root: GenesisAppBundle,
+    audience: BundleAudience,
 ) -> Result<Vec<GenesisAppBundle>, String> {
     let mut stack = vec![root];
     let mut admission = GenesisClosureAdmission::default();
@@ -1634,6 +1726,11 @@ async fn resolve_genesis_app_closure(
     while let Some(app) = stack.pop() {
         if !admission.admit(&app)? {
             continue;
+        }
+        if audience == BundleAudience::Anonymous {
+            // Before materialize_commit_tree, which writes this repository's
+            // content to the cache in order to read its manifest.
+            refuse_unless_repository_is_public(state, tenant, &app).await?;
         }
         let cache_root = genesis_cache_root(
             state,
@@ -1989,110 +2086,6 @@ async fn materialize_tree(
     Ok(())
 }
 
-/// Recompute the durable entity id Genesis assigns to a git object.
-///
-/// Git objects are persisted keyed by `{sanitized_repository_id}-{git_sha}`.
-/// This MUST stay byte-identical to `object_entity_id`, the writer, in the
-/// genesis app bundle at `wasm/scm_ingest_pack/src/lib.rs` (arni-labs/genesis);
-/// any divergence makes the keyed lookup miss and reintroduces the bundle 404.
-/// The contract is exercised end-to-end by the genesis repo's
-/// `scripts/live-genesis-install-e2e-smoke.sh` push→bundle round-trip.
-fn genesis_object_entity_id(repository_id: &str, git_sha: &str) -> String {
-    let mut repo = String::with_capacity(repository_id.len());
-    let mut last_dash = false;
-    for ch in repository_id.chars() {
-        if ch.is_ascii_alphanumeric() {
-            repo.push(ch.to_ascii_lowercase());
-            last_dash = false;
-        } else if !last_dash {
-            repo.push('-');
-            last_dash = true;
-        }
-    }
-    let repo = repo.trim_matches('-');
-    if repo.is_empty() {
-        format!("obj-{git_sha}")
-    } else {
-        format!("{repo}-{git_sha}")
-    }
-}
-
-/// Resolve a git object (Commit/Tree/Blob) by its durable entity key.
-///
-/// Objects are content-addressed under `{repository_id}-{git_sha}`, so we load
-/// that key directly (hydrating from the event store when the actor is cold).
-/// A bare-sha fallback covers any legacy object stored before the composite-key
-/// scheme. The previous implementation looked up the bare sha — which is never
-/// the real key — and then scanned `list_entity_ids_lazy`, whose partially
-/// populated in-memory index could omit durable objects; that made the Genesis
-/// bundle export 404 with "blob not found" for objects that existed and cloned
-/// cleanly. Keyed lookup is both correct and O(1) instead of O(objects).
-async fn load_genesis_object(
-    state: &ServerState,
-    tenant: &TenantId,
-    entity_type: &str,
-    repository_id: &str,
-    git_sha: &str,
-) -> Result<Option<temper_server::EntityResponse>, String> {
-    debug_assert!(!git_sha.is_empty(), "git object sha must not be empty");
-
-    let composite_id = genesis_object_entity_id(repository_id, git_sha);
-    if let Some(found) = load_genesis_object_by_key(
-        state,
-        tenant,
-        entity_type,
-        repository_id,
-        git_sha,
-        &composite_id,
-    )
-    .await?
-    {
-        return Ok(Some(found));
-    }
-
-    // Legacy objects predating the composite-key scheme were keyed by bare sha.
-    // `composite_id` is `{repo}-{sha}` or `obj-{sha}`, so it never equals a
-    // non-empty bare sha; the guard only avoids a redundant duplicate lookup.
-    if composite_id != git_sha
-        && let Some(found) =
-            load_genesis_object_by_key(state, tenant, entity_type, repository_id, git_sha, git_sha)
-                .await?
-    {
-        return Ok(Some(found));
-    }
-
-    Ok(None)
-}
-
-/// Load one candidate entity id and confirm it is the requested git object.
-async fn load_genesis_object_by_key(
-    state: &ServerState,
-    tenant: &TenantId,
-    entity_type: &str,
-    repository_id: &str,
-    git_sha: &str,
-    entity_id: &str,
-) -> Result<Option<temper_server::EntityResponse>, String> {
-    if !state
-        .ensure_entity_loaded(tenant, entity_type, entity_id)
-        .await
-    {
-        return Ok(None);
-    }
-    let found = state
-        .get_tenant_entity_state(tenant, entity_type, entity_id)
-        .await
-        .map_err(|e| format!("read Genesis {entity_type} {entity_id}: {e}"))?;
-    let fields = &found.state.fields;
-    let object_repo = string_field(fields, "RepositoryId").unwrap_or_default();
-    let object_sha = string_field(fields, "Id").unwrap_or_default();
-    if object_repo == repository_id && object_sha == git_sha {
-        Ok(Some(found))
-    } else {
-        Ok(None)
-    }
-}
-
 #[derive(Debug)]
 struct TreeEntry {
     mode: String,
@@ -2226,6 +2219,7 @@ fn sanitize_fragment(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::object_lookup::genesis_object_entity_id;
     use base64::Engine as _;
     use sha2::Digest as _;
     use temper_runtime::ActorSystem;

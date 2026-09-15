@@ -6,7 +6,10 @@
 //! its own entity types and specs.
 
 mod relations;
+mod server_derived_names;
 pub mod types;
+
+use server_derived_names::warn_on_server_derived_csdl_properties;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -162,6 +165,8 @@ impl SpecRegistry {
                 })
             })
             .transpose()?;
+        warn_on_server_derived_csdl_properties(&tenant_name, &csdl);
+
         let relation_graph = build_relation_graph(&csdl, cross_invariants.as_ref());
 
         // Build entity set map from CSDL

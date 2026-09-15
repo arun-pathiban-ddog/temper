@@ -71,13 +71,52 @@ pub fn is_public_kernel_request(method: &Method, path: &str) -> bool {
         || (method == Method::GET && path.starts_with("/genesis/"))
 }
 
+/// Routes that serve an anonymous caller, but must still resolve a credential
+/// when one is presented.
+///
+/// This is deliberately NOT `is_public_kernel_request`. That classification is
+/// checked before credential resolution and returns immediately, so a route
+/// listed there ignores a credential rather than merely not requiring one —
+/// which for the bundle route meant an authenticated caller asking for a
+/// private bundle was treated as anonymous and refused. A route here is tried
+/// only after resolution has already had its chance.
+///
+/// A pinned Genesis app bundle is the same content the git surface already
+/// serves anonymously, so an installing kernel that holds no registry
+/// credential can fetch a public app. The handler refuses unless every
+/// repository in the app's closure is public.
+/// Which `Authorization` schemes a protocol guest is meant to resolve.
+///
+/// Positively scoped: `Basic` (git smart-HTTP presents a GitToken as the Basic
+/// username) and `token` (the GitHub-compatible REST surface). Every other
+/// scheme — `Bearer` above all — is withheld, because a credential that merely
+/// failed to resolve is not thereby safe to hand to a guest: resolution is
+/// tenant-scoped, so a valid kernel bearer aimed at the wrong tenant fails to
+/// resolve while remaining usable against the right one. Checked by the bearer
+/// middleware and again at the guest boundary; this is the one definition.
+pub fn is_forwardable_protocol_scheme(scheme: &str) -> bool {
+    scheme.eq_ignore_ascii_case("basic") || scheme.eq_ignore_ascii_case("token")
+}
+
+pub fn allows_anonymous_fallback(method: &Method, path: &str) -> bool {
+    method == Method::GET && path.starts_with("/api/genesis/apps/") && path.ends_with("/bundle")
+}
+
 /// Reject protected kernel routes that lack authenticated typed authority.
 ///
 /// The guard is installed by [`crate::build_router`] itself so direct embedders
 /// cannot accidentally expose a handler that reconstructs identity from HTTP
 /// headers. Webhook ingress remains governed by its Class B admission boundary.
 pub async fn require_authenticated_request_context(request: Request, next: Next) -> Response {
+    // Anonymous-fallback routes are admitted here for the same reason public
+    // ones are: they serve callers who present nothing. The difference is only
+    // in WHERE the two are checked. This gate runs after credential resolution,
+    // so an authenticated caller already carries a context and is admitted by
+    // the clause below with their authority intact; listing the route as a
+    // public kernel request instead would have discarded that credential before
+    // resolution ever ran.
     if is_public_kernel_request(request.method(), request.uri().path())
+        || allows_anonymous_fallback(request.method(), request.uri().path())
         || request
             .extensions()
             .get::<temper_authz::AuthenticatedRequestContext>()
@@ -101,6 +140,55 @@ pub async fn require_authenticated_request_context(request: Request, next: Next)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn the_typed_authority_gate_admits_an_anonymous_fallback_route() {
+        // Two gates stand between a caller and a kernel handler: this one and
+        // the bearer middleware. Teaching only the bearer middleware about the
+        // anonymous fallback left this gate rejecting the request with a bare
+        // 401, which a local end-to-end run caught and the unit tests for the
+        // other layer could not -- each layer's tests only prove their own
+        // layer.
+        let app = Router::new()
+            .route(
+                "/api/genesis/apps/{owner}/{name}/versions/{hash}/bundle",
+                get(|| async { "reached" }),
+            )
+            .route("/api/specs", get(|| async { "reached" }))
+            .layer(axum::middleware::from_fn(
+                require_authenticated_request_context,
+            ));
+
+        let admitted = app
+            .clone()
+            .oneshot(
+                HttpRequest::get("/api/genesis/apps/acme/widget/versions/abc/bundle")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("request should run");
+        assert_eq!(
+            admitted.status(),
+            StatusCode::OK,
+            "an anonymous-fallback route must reach its handler without a context"
+        );
+
+        let refused = app
+            .oneshot(
+                HttpRequest::get("/api/specs")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("request should run");
+        assert_eq!(
+            refused.status(),
+            StatusCode::UNAUTHORIZED,
+            "every other protected route still requires typed authority"
+        );
+    }
+
     use axum::Router;
     use axum::body::Body;
     use axum::http::{HeaderMap, Request as HttpRequest, StatusCode};

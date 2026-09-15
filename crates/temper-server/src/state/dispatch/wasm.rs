@@ -39,6 +39,26 @@ use boxed::{handle_wasm_failure_boxed, invoke_and_handle_result_boxed};
 use local_tdata_host::LocalTDataWasmHost;
 
 /// Build a request-bound internal HTTP capability issuer for a non-System caller.
+/// The identity a WASM module acts under when it has no caller to act for.
+///
+/// Mirrors the principal the Cedar WASM gate already evaluates
+/// (`build_wasm_security_context`), so a module is the same entity whether it is
+/// being gated or making an internal call.
+fn wasm_module_security_context(module_name: &str) -> SecurityContext {
+    SecurityContext {
+        principal: temper_authz::Principal {
+            id: module_name.to_string(),
+            kind: PrincipalKind::Agent,
+            role: Some("wasm_module".to_string()),
+            acting_for: None,
+            agent_type: None,
+            attributes: std::collections::HashMap::new(), // determinism-ok: Principal uses HashMap
+        },
+        context_attrs: std::collections::HashMap::new(), // determinism-ok: SecurityContext uses HashMap
+        correlation_id: uuid::Uuid::now_v7().to_string(), // determinism-ok: correlation only
+    }
+}
+
 pub(crate) fn internal_http_capability_issuer(
     state: &crate::state::ServerState,
     tenant: &TenantId,
@@ -71,7 +91,6 @@ pub(crate) fn authorized_http_endpoint_host(
     module_name: &str,
     invocation_context: &WasmInvocationContext,
     http_streams: Arc<temper_wasm::http_stream::HttpStreamRegistry>,
-    security_context: &SecurityContext,
 ) -> Result<Arc<dyn WasmHost>, String> {
     let gate = state.wasm_authz_gate();
     let authz_context = WasmAuthzContext {
@@ -90,7 +109,36 @@ pub(crate) fn authorized_http_endpoint_host(
     );
     let secret_resolver =
         state.authorized_wasm_secret_resolver(tenant, Arc::clone(&gate), authz_context.clone());
-    let capability_issuer = internal_http_capability_issuer(state, tenant, Some(security_context))
+    // A guest's internal calls run as the guest, not as its caller.
+    //
+    // An HttpEndpoint guest is the enforcement point for its own protocol:
+    // Genesis resolves the presented GitToken itself and applies repository
+    // authorization inside the module. It cannot delegate that to the kernel,
+    // because the resolved git principal has no way to reach the kernel — the
+    // headers that used to carry it are stripped on purpose (ARN-208/255).
+    //
+    // Binding the guest's internal capability to the inbound caller broke that
+    // in both directions. An anonymous caller could not read the GitToken row
+    // needed to authenticate it — authentication cannot run as the identity it
+    // is about to establish. And an *authenticated* caller was worse: the same
+    // secret registered as both a GitToken and an AgentCredential meant the edge
+    // authenticated the push, so the lookup ran as that principal, which has no
+    // GitToken read permission either. Every valid token degraded to anonymous
+    // and `git push` answered 401.
+    //
+    // So the guest acts as itself — the same named-module principal the Cedar
+    // WASM gate already evaluates. The tenant's policy decides what each module
+    // may read, and those permits are narrow by construction (Genesis grants its
+    // six wire modules read/list on GitToken and nothing else). No caller
+    // credential is forwarded, which is the property ARN-208 protects.
+    //
+    // Tradeoff, recorded deliberately: a guest no longer inherits its caller's
+    // reach for internal calls. For a protocol guest that is correct, because it
+    // was never enforcing on the caller's behalf. It would be wrong for a guest
+    // that expects the kernel to scope its reads, so this applies to the
+    // HttpEndpoint path only.
+    let module_identity = wasm_module_security_context(module_name);
+    let capability_issuer = internal_http_capability_issuer(state, tenant, Some(&module_identity))
         .ok_or_else(|| "HttpEndpoint caller authority cannot be delegated".to_string())?;
     let internal_api_url = internal_api_base_url(state);
     let local_blob_interceptor = local_blob_binary_interceptor(
@@ -123,10 +171,16 @@ pub(crate) fn authorized_http_endpoint_host(
     }
 
     let production_host: Arc<dyn WasmHost> = Arc::new(base_host);
+    // The same identity on both paths, or the guest gets different answers
+    // depending on which one a call happens to take. `/tdata` reads are served
+    // in-process here; anything else is minted a capability above. Binding this
+    // one to the caller while the other carries the module was the reason the
+    // first attempt at this fix changed nothing: the GitToken lookup is a
+    // `/tdata` read, so it never went near the capability issuer.
     let local_host: Arc<dyn WasmHost> = Arc::new(LocalTDataWasmHost::new(
         state.clone(),
         tenant.clone(),
-        Some(security_context),
+        Some(&module_identity),
         production_host,
     ));
     Ok(Arc::new(AuthorizedWasmHost::new(

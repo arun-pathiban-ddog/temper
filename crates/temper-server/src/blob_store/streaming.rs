@@ -1,7 +1,6 @@
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use base64::Engine as _;
 use bytes::Bytes;
 use futures_util::StreamExt as _;
 use reqwest::{Method, StatusCode};
@@ -18,6 +17,9 @@ use crate::blob_store::local::get_local_blob_bounded_observed;
 use crate::blob_transport_observability::{
     BlobTransportError, BlobTransportFinish, blob_transport_span, finish_blob_transport,
 };
+
+mod base64_stream;
+pub use base64_stream::decode_json_base64_stream;
 
 const STREAM_CHUNK_BYTES: usize = 64 * 1024;
 const BASE64_INPUT_CHUNK_BYTES: usize = 64 * 1024;
@@ -53,6 +55,25 @@ pub struct BlobObjectStream {
 }
 
 impl BlobObjectStream {
+    /// Wrap bytes already in memory as a bounded stream.
+    ///
+    /// Used by the legacy DB blob fallback, whose store returns whole objects
+    /// rather than a stream. Keeping the same `BlobObjectStream` shape means
+    /// callers cannot tell which store answered, which is the point: the
+    /// streaming and non-streaming reads must agree about what exists.
+    pub(crate) fn from_bytes(bytes: Vec<u8>) -> Self {
+        let content_length = bytes.len() as u64;
+        let source: BlobByteStream = Box::pin(async_stream::try_stream! {
+            if !bytes.is_empty() {
+                yield Bytes::from(bytes);
+            }
+        });
+        Self {
+            content_length,
+            stream: enforce_stream_bounds(source, content_length),
+        }
+    }
+
     /// Number of bytes the stream must yield before completing.
     pub fn content_length(&self) -> u64 {
         self.content_length
@@ -392,100 +413,6 @@ fn enforce_stream_bounds(mut source: BlobByteStream, expected_bytes: u64) -> Blo
             ))?;
         }
     })
-}
-
-/// Incrementally decode a JSON string containing standard base64.
-pub fn decode_json_base64_stream(
-    encoded: BlobObjectStream,
-    expected_decoded_bytes: u64,
-) -> BlobObjectStream {
-    let mut source = encoded.into_stream();
-    let stream: BlobByteStream = Box::pin(async_stream::try_stream! {
-        let mut opened = false;
-        let mut pending = None;
-        let mut encoded_buffer = Vec::with_capacity(BASE64_INPUT_CHUNK_BYTES);
-        let mut decoded_bytes = 0u64;
-        let mut padding_seen = false;
-
-        while let Some(chunk) = source.next().await {
-            let chunk = chunk?;
-            for byte in chunk {
-                if !opened {
-                    if byte != b'"' {
-                        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "overflow blob is not a JSON string"))?;
-                    }
-                    opened = true;
-                    continue;
-                }
-                if let Some(previous) = pending.replace(byte) {
-                    push_base64_byte(previous, &mut encoded_buffer, padding_seen)?;
-                }
-                if encoded_buffer.len() == BASE64_INPUT_CHUNK_BYTES {
-                    let group = base64::engine::general_purpose::STANDARD
-                        .decode(&encoded_buffer)
-                        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-                    decoded_bytes = decoded_bytes
-                        .checked_add(group.len() as u64)
-                        .ok_or_else(|| std::io::Error::other("decoded blob byte count overflow"))?;
-                    if decoded_bytes > expected_decoded_bytes {
-                        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "decoded blob exceeded expected length"))?;
-                    }
-                    padding_seen = encoded_buffer.contains(&b'=');
-                    encoded_buffer.clear();
-                    yield Bytes::from(group);
-                }
-            }
-        }
-        if !opened || pending != Some(b'"') {
-            Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "overflow blob JSON string is truncated"))?;
-        }
-        if !encoded_buffer.is_empty() {
-            if encoded_buffer.len() % 4 != 0 {
-                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "overflow blob has incomplete base64"))?;
-            }
-            let group = base64::engine::general_purpose::STANDARD
-                .decode(&encoded_buffer)
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-            decoded_bytes = decoded_bytes
-                .checked_add(group.len() as u64)
-                .ok_or_else(|| std::io::Error::other("decoded blob byte count overflow"))?;
-            if decoded_bytes > expected_decoded_bytes {
-                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "decoded blob exceeded expected length"))?;
-            }
-            yield Bytes::from(group);
-        }
-        if decoded_bytes != expected_decoded_bytes {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                format!("decoded blob ended at {decoded_bytes} bytes; expected {expected_decoded_bytes}"),
-            ))?;
-        }
-    });
-    BlobObjectStream {
-        content_length: expected_decoded_bytes,
-        stream,
-    }
-}
-
-fn push_base64_byte(
-    byte: u8,
-    encoded_buffer: &mut Vec<u8>,
-    padding_seen: bool,
-) -> Result<(), std::io::Error> {
-    if padding_seen {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "base64 data followed padding",
-        ));
-    }
-    if !(byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "overflow blob contains non-base64 data",
-        ));
-    }
-    encoded_buffer.push(byte);
-    Ok(())
 }
 
 #[cfg(test)]

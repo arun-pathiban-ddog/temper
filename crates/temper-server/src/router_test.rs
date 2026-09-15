@@ -2583,7 +2583,7 @@ fn credential_headers_are_not_forwarded_to_wasm_guests() {
         "a credential header was added or removed — plant it in this test too"
     );
 
-    let visible = guest_visible_headers(&headers);
+    let visible = guest_visible_headers(&headers, false);
     let names: Vec<String> = visible
         .iter()
         .map(|(k, _)| k.to_ascii_lowercase())
@@ -2628,6 +2628,94 @@ fn credential_headers_are_not_forwarded_to_wasm_guests() {
         assert!(
             names.iter().any(|n| n == expected),
             "{expected} is not a credential and must still be forwarded; got {names:?}"
+        );
+    }
+}
+
+#[test]
+fn credential_forwarding_is_off_by_default_and_explicit_when_on() {
+    // ARN-208's invariant is the default: a caller credential must not reach a
+    // guest. Git smart-HTTP is the exception, because the GitToken it presents
+    // as HTTP Basic is meaningless to the kernel and is the app's to resolve --
+    // stripping it there does not protect anything, it just makes every push
+    // authenticate as anonymous.
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::AUTHORIZATION,
+        axum::http::HeaderValue::from_static("Basic cGF3Z190b2tlbjo="),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/x-git-receive-pack-request"),
+    );
+
+    let stripped = guest_visible_headers(&headers, false);
+    assert!(
+        !stripped
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("authorization")),
+        "an endpoint that has not opted in must never see a credential; got {stripped:?}"
+    );
+    assert!(
+        stripped
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("content-type")),
+        "ordinary headers still reach the guest"
+    );
+
+    let forwarded = guest_visible_headers(&headers, true);
+    assert!(
+        forwarded
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("authorization")),
+        "an endpoint that opted in must see the credential it is expected to resolve"
+    );
+}
+
+#[test]
+fn the_forwarding_opt_in_releases_only_the_protocol_credential() {
+    // Opting in releases ONE header. A git module needs the GitToken the client
+    // presented; it has no business receiving the caller's session cookie, an
+    // API key, or whatever an identity-aware proxy injected in front of the
+    // kernel. The first version of this opt-in disabled the whole denylist,
+    // which handed a guest all sixteen.
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::AUTHORIZATION,
+        axum::http::HeaderValue::from_static("Basic cGF3Z190b2tlbjo="),
+    );
+    for (name, value) in [
+        ("cookie", "session=super-secret"),
+        ("x-api-key", "live-key"),
+        ("x-forwarded-access-token", "idp-token"),
+        ("x-goog-iap-jwt-assertion", "iap-assertion"),
+        ("cf-access-jwt-assertion", "cf-assertion"),
+    ] {
+        headers.insert(
+            axum::http::HeaderName::from_static(name),
+            axum::http::HeaderValue::from_str(value).expect("test header value"),
+        );
+    }
+
+    let forwarded = guest_visible_headers(&headers, true);
+    assert!(
+        forwarded
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("authorization")),
+        "the opted-in route still resolves its own protocol credential; got {forwarded:?}"
+    );
+    for leaked in [
+        "cookie",
+        "x-api-key",
+        "x-forwarded-access-token",
+        "x-goog-iap-jwt-assertion",
+        "cf-access-jwt-assertion",
+    ] {
+        assert!(
+            !forwarded
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case(leaked)),
+            "{leaked} must stay stripped even on a forwarding route; got {forwarded:?}"
         );
     }
 }

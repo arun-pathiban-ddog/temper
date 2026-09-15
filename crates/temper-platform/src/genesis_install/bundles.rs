@@ -18,7 +18,14 @@ use super::{
 const MAX_GENESIS_BUNDLE_FILES: usize = 4096;
 pub(super) const MAX_GENESIS_BUNDLE_APPS: usize = 256;
 pub(super) const MAX_GENESIS_BUNDLE_FILE_BYTES: u64 = 16 * 1024 * 1024;
-const MAX_GENESIS_BUNDLE_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+// Raised from 64 MiB. A real app closure did not fit: dsf-factory alone is
+// ~52 MB of legitimate compiled WASM (59 modules, one per resource operation),
+// leaving ~12 MB for every app it depends on combined. The budget exists to
+// bound how much a single install may materialize, not to cap an app at a size
+// the platform's own apps already exceed, so give it room while keeping it
+// finite. Per-file (16 MiB) and file-count (4096) limits are unchanged and are
+// what actually catch a runaway publish.
+const MAX_GENESIS_BUNDLE_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_GENESIS_TREE_OBJECTS: usize = 8192;
 const MAX_GENESIS_TREE_ENTRIES: usize = 16_384;
 const MAX_GENESIS_TREE_DEPTH: usize = 128;
@@ -278,8 +285,17 @@ impl GenesisBundleBudget {
             ));
         }
         if bytes > self.bytes_remaining {
+            // Name the budget and what is left of it. The usual cause is an app
+            // published with build output committed (a Rust `target/`, a
+            // `node_modules/`), where one intermediate is larger than the whole
+            // remaining allowance — and the app that fails is the one being
+            // installed, not the one at fault, so say which file it was.
+            let consumed = MAX_GENESIS_BUNDLE_TOTAL_BYTES.saturating_sub(self.bytes_remaining);
             return Err(format!(
-                "Genesis bundle file '{}' exceeds the remaining aggregate byte budget {}",
+                "Genesis bundle file '{}' is {bytes} bytes but only {} of the \
+                 {MAX_GENESIS_BUNDLE_TOTAL_BYTES}-byte bundle budget remains ({consumed} already \
+                 consumed). An app published with build output committed is the usual cause; \
+                 republish it without those files.",
                 path.display(),
                 self.bytes_remaining
             ));
