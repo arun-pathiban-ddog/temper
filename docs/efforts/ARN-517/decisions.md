@@ -47,3 +47,15 @@
 **Chose structured identity because:** A human approval must apply to the server's recorded decision. Text formatting is not an authority boundary. Servers without a structured decision ID continue reporting denials but cannot offer inline resolution; the server update must precede the MCP update. This requires a small server response change in the existing approval PR, not a new permission or policy mechanism.
 
 **Where:** OData denial responses, `temper-sandbox::helpers::format_authz_denied`, and the MCP mock transport regression in PR #436.
+
+## Native process shutdown
+
+**Decision:** Bound Tokio runtime shutdown to one second after the MCP loop finishes, in both MCP executable entry points.
+
+**Came up because:** The asynchronous transport regression passed while a real process still hung on a full output pipe. Draining that pipe released the process with its expected input-queue error. Tokio's standard I/O runs blocking OS calls that aborting an asynchronous task cannot cancel.
+
+**Options:** Rely on task cancellation; replace standard I/O with platform-specific nonblocking descriptors; bound runtime shutdown once the supervised MCP loop has finished.
+
+**Chose bounded shutdown because:** The loop already flushes successful output and reports transport errors. Waiting forever for an abandoned pipe cannot improve either outcome. The change is confined to MCP process termination; other Temper commands keep their existing runtime shutdown behavior.
+
+**Where:** `crates/temper-mcp/src/main.rs` and `crates/temper-cli/src/main.rs`, PR #436.

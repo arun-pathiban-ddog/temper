@@ -282,6 +282,8 @@ fn resolve_tokio_thread_stack_bytes(env_value: Option<&str>) -> Result<usize, St
 fn main() -> anyhow::Result<()> {
     // Load .env file from project root (silently ignored if missing).
     dotenvy::dotenv().ok();
+    let cli = Cli::parse();
+    let is_mcp = matches!(&cli.command, Commands::Mcp { .. });
 
     let tokio_thread_stack_bytes = resolve_tokio_thread_stack_bytes(
         std::env::var("TEMPER_TOKIO_THREAD_STACK_BYTES")
@@ -295,12 +297,16 @@ fn main() -> anyhow::Result<()> {
         .thread_stack_size(tokio_thread_stack_bytes)
         .build()?;
 
-    runtime.block_on(async_main())
+    let result = runtime.block_on(async_main(cli));
+    if is_mcp {
+        // A canceled Tokio stdio task may leave an uncancellable OS pipe call.
+        // MCP has already drained output or reported failure before returning.
+        runtime.shutdown_timeout(std::time::Duration::from_secs(1));
+    }
+    result
 }
 
-async fn async_main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-
+async fn async_main(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Commands::Init { name } => init::run(&name)?,
         Commands::Install {
