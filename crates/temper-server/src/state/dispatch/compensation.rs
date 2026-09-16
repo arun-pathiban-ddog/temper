@@ -16,6 +16,7 @@
 //! inside the existing `// determinism-ok` background spawn, outside the
 //! simulation core; what is deterministic is the chosen action and its dispatch.
 
+use super::WasmEntityRef;
 use temper_runtime::tenant::TenantId;
 use tracing::Instrument;
 
@@ -59,7 +60,7 @@ impl crate::state::ServerState {
         let entity_id = entity_id.to_string();
         let triggering_action = triggering_action.to_string();
         let error = error.to_string();
-        let parent_ctx = parent_ctx.clone();
+        let parent_ctx = parent_ctx.for_background_task();
         let span = tracing::info_span!(
             "dispatch.integration_failure_compensation",
             tenant = %tenant,
@@ -142,17 +143,29 @@ impl crate::state::ServerState {
                     return;
                 }
             };
-        let Some(callback_ctx) = parent_ctx.for_callback() else {
-            self.surface_dropped_integration_failure(
-                tenant,
-                entity_type,
-                entity_id,
-                triggering_action,
-                status.as_str(),
-                error,
-                "callback depth exhausted",
-            );
-            return;
+        let callback_ctx = match parent_ctx.for_callback() {
+            Ok(context) => context,
+            Err(budget_error) => {
+                self.record_generated_callback_refusal(
+                    WasmEntityRef {
+                        tenant,
+                        entity_type,
+                        entity_id,
+                    },
+                    &action,
+                    &budget_error.to_string(),
+                );
+                self.surface_dropped_integration_failure(
+                    tenant,
+                    entity_type,
+                    entity_id,
+                    triggering_action,
+                    status.as_str(),
+                    error,
+                    &budget_error.to_string(),
+                );
+                return;
+            }
         };
         let agent_ctx =
             AgentContext::for_service_inheriting("integration-compensation", &callback_ctx);
