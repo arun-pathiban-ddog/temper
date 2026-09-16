@@ -191,6 +191,7 @@ pub(crate) async fn handle_load_inline(
         return Err((
             StatusCode::FORBIDDEN,
             serde_json::json!({
+                "decision_id": primary_decision_id,
                 "error": {
                     "code": "AuthorizationDenied",
                     "message": format!("{reason} Decision {primary_decision_id}"),

@@ -4,6 +4,7 @@ mod code_analysis;
 mod elicit;
 mod protocol;
 mod runtime;
+mod stdio;
 mod trajectory_bounds;
 
 pub mod repl;

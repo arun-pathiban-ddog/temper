@@ -40,7 +40,7 @@ server→client request at all.
 ## Decision
 
 When a `temper.*` call inside `execute` returns a structured Cedar denial
-with a decision id, and the connected MCP client declared the
+with an authoritative structured `decision_id` (never extracted from prose), and the connected MCP client declared the
 `elicitation` capability, the MCP process pauses the tool result and asks
 the human to resolve the decision inline. Capability-gated, fail-closed to
 pending, disabled with one env var.
@@ -62,11 +62,11 @@ every denial exactly once.
 ### Sub-Decision 2: Correlated server→client requests in the stdio loop
 
 The loop is restructured into a reader task and a writer task joined by
-channels. The reader classifies each inbound frame: a JSON-RPC *response*
+bounded channels (64 messages each). Queue saturation closes the connection, rather than blocking the only reader that can receive a human answer. Reader/writer errors propagate. The reader classifies each inbound frame: a JSON-RPC *response*
 (id + result/error, no method) resolves the matching entry in a pending
 server→client request map; everything else queues for the sequential
 dispatch loop. `ClientRequester` allocates ids from a server-side counter
-and awaits the response until the human answers or the client disconnects. An operator may explicitly configure a deadline.
+and awaits the response until the human answers, the originating call is canceled, or the client disconnects. An operator may explicitly configure a deadline. Cancellation dismisses the prompt and late answers cannot resolve it. The subsequent HTTP resolution has its own 30-second network deadline; timeout reports an unknown outcome and never retries automatically.
 
 Because dispatch stays strictly sequential, at most one elicitation is in
 flight per session by construction — later client requests wait in the
@@ -82,7 +82,7 @@ its tests) intact.
 ### Sub-Decision 3: Capability gating and honest version negotiation
 
 The `initialize` handler records whether `capabilities.elicitation` was
-declared. Without it — or with `TEMPER_MCP_ELICIT_APPROVALS=0`, or with no
+declared as an object and protocol 2025-06-18 was negotiated. Without it — or with `TEMPER_MCP_ELICIT_APPROVALS=0`, or with no
 `TEMPER_API_KEY` to resolve decisions with — behavior is exactly as
 before: the denial passes through untouched. Capability gating is also the
 non-interactive detection: a headless client simply never declares

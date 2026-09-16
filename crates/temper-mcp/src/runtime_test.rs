@@ -8,6 +8,7 @@ use crate::code_analysis::{
 };
 use crate::trajectory_bounds::{MAX_TRAJECTORY_ACTIONS, MAX_TRAJECTORY_TEXT_BYTES};
 use axum::{Router, extract::State, http::HeaderMap, http::StatusCode, routing::post};
+use serde_json::Value;
 use std::sync::Mutex;
 
 #[test]

@@ -2,7 +2,6 @@
 
 use anyhow::{Result, bail};
 use monty::MontyObject;
-use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Duration;
 use temper_ots::{
@@ -10,21 +9,17 @@ use temper_ots::{
     OTSMessageContent, OTSMetadata, OutcomeType, TrajectoryBuilder,
 };
 use temper_runtime::scheduler::sim_now;
-use tokio::io::{self, AsyncBufRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::mpsc;
+use tokio::io::{self, BufReader};
 
 use super::McpConfig;
 use super::code_analysis::{extract_temper_call_metadata, extract_trajectory_actions_from_code};
-use super::protocol::{dispatch_json_value, json_rpc_error};
 use crate::elicit::{
-    ClientRequester, DeniedDecision, PendingClientRequests, denial_from_dispatch_value,
-    elicit_flag_enabled, is_client_response,
+    ClientRequester, DeniedDecision, denial_from_dispatch_value, elicit_flag_enabled,
 };
 use crate::trajectory_bounds::{
-    MAX_STDIO_LINE_BYTES, MAX_TRAJECTORY_TOTAL_BYTES, MAX_TRAJECTORY_TURNS, StdioFrame,
-    TRAJECTORY_TURN_ENVELOPE_BYTES, bounded_trajectory_actions, bump_seen, floor_char_boundary,
-    json_string_cost, json_value_cost, read_stdio_frame, trajectory_storage_tenant,
-    truncate_trajectory_text,
+    MAX_TRAJECTORY_TOTAL_BYTES, MAX_TRAJECTORY_TURNS, TRAJECTORY_TURN_ENVELOPE_BYTES,
+    bounded_trajectory_actions, bump_seen, floor_char_boundary, json_string_cost, json_value_cost,
+    trajectory_storage_tenant, truncate_trajectory_text,
 };
 
 const OTS_UPLOAD_MAX_ATTEMPTS: u32 = 3;
@@ -600,136 +595,7 @@ struct TrajectoryUploadError {
 /// Run the MCP server on stdio with JSON-RPC over newline-delimited JSON.
 pub async fn run_stdio_server(config: McpConfig) -> Result<()> {
     let ctx = RuntimeContext::from_config(&config)?;
-    run_loop(ctx, BufReader::new(io::stdin()), io::stdout()).await
-}
-
-/// Run the MCP server loop over an arbitrary transport.
-///
-/// The transport is split into a reader task and a writer task connected by
-/// channels so the server can send correlated requests to the client (MCP
-/// elicitation) while a `tools/call` is still being handled: the reader
-/// routes JSON-RPC *responses* to the pending server→client request map and
-/// queues client *requests* for the sequential dispatch loop. That queue also
-/// guarantees at most one elicitation is in flight per session.
-///
-/// Frames are read through [`read_stdio_frame`], which bounds each frame to
-/// `MAX_STDIO_LINE_BYTES`; oversized frames are dropped and invalid UTF-8
-/// frames are skipped rather than aborting the session.
-pub(crate) async fn run_loop<R, W>(mut ctx: RuntimeContext, reader: R, writer: W) -> Result<()>
-where
-    R: AsyncBufRead + Unpin + Send + 'static,
-    W: AsyncWrite + Unpin + Send + 'static,
-{
-    let (out_tx, out_rx) = mpsc::unbounded_channel::<Value>();
-    let writer_task = tokio::spawn(write_outbound(out_rx, writer));
-
-    let pending = PendingClientRequests::default();
-    ctx.requester = Some(ClientRequester::new(out_tx.clone(), pending.clone()));
-
-    let (in_tx, mut in_rx) = mpsc::unbounded_channel::<Value>();
-    let reader_task = tokio::spawn(read_inbound(reader, in_tx, pending, out_tx.clone()));
-
-    while let Some(message) = in_rx.recv().await {
-        if let Some(response) = dispatch_json_value(&mut ctx, message).await
-            && out_tx.send(response).is_err()
-        {
-            break;
-        }
-    }
-
-    // Finalize and upload OTS trajectory on session close.
-    ctx.finalize_trajectory().await;
-
-    // Drop every outbound sender (the requester holds one) so the writer
-    // drains remaining output and exits, then stop the reader.
-    ctx.requester = None;
-    drop(out_tx);
-    let _ = writer_task.await;
-    reader_task.abort();
-
-    Ok(())
-}
-
-/// Read frames from the client, routing responses to pending server→client
-/// requests and forwarding requests/notifications to the dispatch loop.
-async fn read_inbound<R: AsyncBufRead + Unpin>(
-    mut reader: R,
-    inbound: mpsc::UnboundedSender<Value>,
-    pending: PendingClientRequests,
-    outbound: mpsc::UnboundedSender<Value>,
-) {
-    loop {
-        let buf = match read_stdio_frame(&mut reader).await {
-            Ok(StdioFrame::Eof) | Err(_) => break,
-            Ok(StdioFrame::TooLarge) => {
-                tracing::warn!(
-                    limit = MAX_STDIO_LINE_BYTES,
-                    "mcp.stdio.frame_too_large: dropped oversized frame"
-                );
-                continue;
-            }
-            Ok(StdioFrame::Line(buf)) => buf,
-        };
-        let line = match std::str::from_utf8(&buf) {
-            Ok(text) => text.trim(),
-            Err(_) => {
-                tracing::warn!("mcp.stdio.invalid_utf8: dropped frame");
-                continue;
-            }
-        };
-        if line.is_empty() {
-            continue;
-        }
-
-        let message: Value = match serde_json::from_str(line) {
-            Ok(value) => value,
-            Err(error) => {
-                let _ = outbound.send(json_rpc_error(
-                    None,
-                    -32700,
-                    format!("parse error: {error}"),
-                ));
-                continue;
-            }
-        };
-
-        if is_client_response(&message) {
-            if !pending.resolve(message) {
-                tracing::warn!("mcp.stdio.unmatched_response: dropped");
-            }
-            continue;
-        }
-        if inbound.send(message).is_err() {
-            break;
-        }
-    }
-
-    // The client stream ended: fail any in-flight server→client request so
-    // a pending elicitation returns immediately (decision left pending)
-    // instead of waiting out its timeout.
-    pending.fail_all();
-}
-
-/// Serialize outbound JSON-RPC messages as newline-delimited frames.
-async fn write_outbound<W: AsyncWrite + Unpin>(
-    mut rx: mpsc::UnboundedReceiver<Value>,
-    mut writer: W,
-) {
-    while let Some(message) = rx.recv().await {
-        let encoded = match serde_json::to_string(&message) {
-            Ok(encoded) => encoded,
-            Err(error) => {
-                tracing::warn!(%error, "mcp.stdio.encode_failed: dropped message");
-                continue;
-            }
-        };
-        if writer.write_all(encoded.as_bytes()).await.is_err()
-            || writer.write_all(b"\n").await.is_err()
-            || writer.flush().await.is_err()
-        {
-            break;
-        }
-    }
+    crate::stdio::run_loop(ctx, BufReader::new(io::stdin()), io::stdout()).await
 }
 
 #[cfg(test)]

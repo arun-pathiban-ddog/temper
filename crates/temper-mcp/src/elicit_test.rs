@@ -29,7 +29,7 @@ fn is_client_response_classifies_messages() {
 
 #[tokio::test]
 async fn client_requester_correlates_response_by_id() {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let pending = PendingClientRequests::default();
     let requester = ClientRequester::new(tx, pending.clone());
 
@@ -56,7 +56,7 @@ async fn client_requester_correlates_response_by_id() {
 
 #[tokio::test]
 async fn client_requester_times_out_and_clears_pending() {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let pending = PendingClientRequests::default();
     let requester = ClientRequester::new(tx, pending.clone());
 
@@ -78,7 +78,7 @@ async fn client_requester_times_out_and_clears_pending() {
 
 #[tokio::test]
 async fn client_requester_reports_closed_channel() {
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, rx) = tokio::sync::mpsc::channel(64);
     drop(rx);
     let requester = ClientRequester::new(tx, PendingClientRequests::default());
     let result = requester
@@ -262,7 +262,7 @@ fn annotate_merges_into_object_and_wraps_scalars() {
 
 #[tokio::test(start_paused = true)]
 async fn human_approval_after_three_minutes_still_reaches_waiter() {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let pending = PendingClientRequests::default();
     let requester = ClientRequester::new(tx, pending.clone());
     let request = requester.request(
@@ -290,7 +290,7 @@ async fn human_approval_after_three_minutes_still_reaches_waiter() {
 
 #[tokio::test]
 async fn untimed_human_prompt_ends_on_disconnect() {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(64);
     let pending = PendingClientRequests::default();
     let requester = ClientRequester::new(tx, pending.clone());
     let request = requester.request("elicitation/create", json!({}), None);
@@ -301,4 +301,50 @@ async fn untimed_human_prompt_ends_on_disconnect() {
     let (result, ()) = tokio::join!(request, disconnect);
     assert_eq!(result.unwrap_err(), ClientRequestError::Closed);
     assert!(!pending.resolve(json!({"id": 1, "result": {"action": "accept"}})));
+}
+
+#[tokio::test]
+async fn approval_network_timeout_does_not_become_a_human_timeout() {
+    use axum::{Router, routing::post};
+    let received = Arc::new(tokio::sync::Notify::new());
+    let signal = received.clone();
+    let app = Router::new().route(
+        "/api/tenants/demo/decisions/PD-test/approve",
+        post(move || {
+            let signal = signal.clone();
+            async move {
+                signal.notify_one();
+                std::future::pending::<String>().await
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let backend = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let ctx = RuntimeContext::from_config(&crate::McpConfig {
+        temper_port: Some(port),
+        temper_url: None,
+        agent_id: None,
+        agent_type: None,
+        session_id: None,
+        api_key: None,
+    })
+    .unwrap();
+    let denial = DeniedDecision {
+        tenant: "demo".into(),
+        decision_id: "PD-test".into(),
+        reason: "test".into(),
+    };
+    let clock = async {
+        received.notified().await;
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(31)).await;
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(35), async {
+        tokio::join!(resolve_decision(&ctx, &denial, "approve", None), clock)
+    })
+    .await
+    .expect("resolution must have its own network deadline");
+    assert!(result.unwrap_err().contains("timed out"));
+    backend.abort();
 }

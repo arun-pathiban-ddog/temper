@@ -30,16 +30,45 @@ pub(crate) const CHOICE_LEAVE_PENDING: &str = "leave_pending";
 /// In-flight server→client requests keyed by the serialized request id.
 #[derive(Clone, Default)]
 pub(crate) struct PendingClientRequests {
-    inner: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
+    inner: Arc<Mutex<PendingState>>,
+}
+
+#[derive(Default)]
+struct PendingState {
+    requests: HashMap<String, oneshot::Sender<Value>>,
+    closed: bool,
 }
 
 impl PendingClientRequests {
-    fn insert(&self, key: String, tx: oneshot::Sender<Value>) {
-        self.inner.lock().expect("pending map lock").insert(key, tx);
+    fn insert(&self, key: String, tx: oneshot::Sender<Value>) -> bool {
+        let mut state = self.inner.lock().expect("pending map lock");
+        if state.closed {
+            return false;
+        }
+        state.requests.insert(key, tx);
+        true
+    }
+
+    /// Dismiss prompts owned by a canceled call, without closing the session.
+    pub(crate) async fn cancel_all(&self, outbound: &mpsc::Sender<Value>) {
+        let requests = std::mem::take(&mut self.inner.lock().expect("pending map lock").requests);
+        for (key, _) in requests {
+            let id: Value = serde_json::from_str(&key).expect("serialized request id");
+            let _ = outbound
+                .send(json!({
+                    "jsonrpc": "2.0", "method": "notifications/cancelled",
+                    "params": {"requestId": id, "reason": "Originating tool call canceled"}
+                }))
+                .await;
+        }
     }
 
     fn remove(&self, key: &str) {
-        self.inner.lock().expect("pending map lock").remove(key);
+        self.inner
+            .lock()
+            .expect("pending map lock")
+            .requests
+            .remove(key);
     }
 
     /// Route a client response to the request waiting on its id. Returns
@@ -49,17 +78,25 @@ impl PendingClientRequests {
             return false;
         };
         let key = id.to_string();
-        let Some(tx) = self.inner.lock().expect("pending map lock").remove(&key) else {
+        let Some(tx) = self
+            .inner
+            .lock()
+            .expect("pending map lock")
+            .requests
+            .remove(&key)
+        else {
             return false;
         };
         tx.send(response).is_ok()
     }
 
     /// Drop every in-flight request so its awaiter fails immediately with
-    /// `Closed` instead of waiting out the timeout. Called when the client
+    /// `Closed`. Called when the client
     /// stream ends mid-elicitation.
     pub(crate) fn fail_all(&self) {
-        self.inner.lock().expect("pending map lock").clear();
+        let mut state = self.inner.lock().expect("pending map lock");
+        state.closed = true;
+        state.requests.clear();
     }
 }
 
@@ -86,16 +123,13 @@ pub(crate) enum ClientRequestError {
 /// through [`PendingClientRequests`] by the stdio reader task.
 #[derive(Clone)]
 pub(crate) struct ClientRequester {
-    outbound: mpsc::UnboundedSender<Value>,
+    outbound: mpsc::Sender<Value>,
     pending: PendingClientRequests,
     next_id: Arc<AtomicU64>,
 }
 
 impl ClientRequester {
-    pub(crate) fn new(
-        outbound: mpsc::UnboundedSender<Value>,
-        pending: PendingClientRequests,
-    ) -> Self {
+    pub(crate) fn new(outbound: mpsc::Sender<Value>, pending: PendingClientRequests) -> Self {
         Self {
             outbound,
             pending,
@@ -113,7 +147,9 @@ impl ClientRequester {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let key = Value::from(id).to_string();
         let (tx, rx) = oneshot::channel();
-        self.pending.insert(key.clone(), tx);
+        if !self.pending.insert(key.clone(), tx) {
+            return Err(ClientRequestError::Closed);
+        }
 
         let request = json!({
             "jsonrpc": "2.0",
@@ -121,7 +157,7 @@ impl ClientRequester {
             "method": method,
             "params": params,
         });
-        if self.outbound.send(request).is_err() {
+        if self.outbound.send(request).await.is_err() {
             self.pending.remove(&key);
             return Err(ClientRequestError::Closed);
         }
@@ -137,14 +173,17 @@ impl ClientRequester {
             Err(_elapsed) => {
                 self.pending.remove(&key);
                 // Tell the client that this prompt is no longer actionable.
-                let _ = self.outbound.send(json!({
-                    "jsonrpc": "2.0",
-                    "method": "notifications/cancelled",
-                    "params": {
-                        "requestId": id,
-                        "reason": "Approval request expired; the decision remains pending"
-                    }
-                }));
+                let _ = self
+                    .outbound
+                    .send(json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/cancelled",
+                        "params": {
+                            "requestId": id,
+                            "reason": "Approval request expired; the decision remains pending"
+                        }
+                    }))
+                    .await;
                 Err(ClientRequestError::Timeout)
             }
         }
@@ -321,7 +360,11 @@ async fn resolve_decision(
         "{}/api/tenants/{}/decisions/{}/{verb}",
         ctx.base_url, denial.tenant, denial.decision_id
     );
-    let mut request = ctx.http.post(&url).header("X-Tenant-Id", &denial.tenant);
+    let mut request = ctx
+        .http
+        .post(&url)
+        .timeout(Duration::from_secs(30))
+        .header("X-Tenant-Id", &denial.tenant);
     // Post the approval as the approver principal. When a scoped agent
     // credential (api_key) makes the denied call, resolving with a distinct
     // operator credential (approver_key) is required — ARN-389 forbids the
@@ -341,6 +384,10 @@ async fn resolve_decision(
             let text = resp.text().await.unwrap_or_default();
             Err(format!("HTTP {status}: {text}"))
         }
+        Err(error) if error.is_timeout() => Err(
+            "decision resolution timed out; outcome unknown; check decision status before retrying"
+                .into(),
+        ),
         Err(error) => Err(error.to_string()),
     }
 }

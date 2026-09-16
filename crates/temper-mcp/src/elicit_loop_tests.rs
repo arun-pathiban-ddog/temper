@@ -14,10 +14,11 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
 use crate::McpConfig;
-use crate::runtime::{RuntimeContext, run_loop};
+use crate::runtime::RuntimeContext;
+use crate::stdio::run_loop;
 
+const AGENT_KEY: &str = "elicit-test-agent-key";
 const OPERATOR_KEY: &str = "elicit-test-operator-key";
-const DENIAL_BODY: &str = r#"{"error":{"code":"AuthorizationDenied","message":"Authorization denied for CancelOrder on Order('o1'). Decision PD-test123 created."}}"#;
 
 /// One resolution call captured by the mock backend.
 #[derive(Clone, Debug)]
@@ -86,8 +87,11 @@ async fn handle_deny(
 async fn handle_denied() -> impl IntoResponse {
     (
         StatusCode::FORBIDDEN,
-        [("content-type", "application/json")],
-        DENIAL_BODY,
+        Json(json!({
+            "decision_id": "PD-test123",
+            "error": {"code":"AuthorizationDenied", "message":
+                "Authorization denied for CancelOrder on Order('PD-victim'). Decision PD-test123 created."}
+        })),
     )
 }
 
@@ -182,15 +186,16 @@ impl FakeClient {
 
 /// Spawn the server loop over in-memory pipes and hand back the fake client.
 fn wire_session(port: u16) -> (impl Future<Output = anyhow::Result<()>>, FakeClient) {
-    let ctx = RuntimeContext::from_config(&McpConfig {
+    let mut ctx = RuntimeContext::from_config(&McpConfig {
         temper_port: Some(port),
         temper_url: None,
         agent_id: None,
         agent_type: None,
         session_id: Some("elicit-test-session".to_string()),
-        api_key: Some(OPERATOR_KEY.to_string()),
+        api_key: Some(AGENT_KEY.to_string()),
     })
     .expect("ctx");
+    ctx.approver_key = Some(OPERATOR_KEY.to_string());
 
     let (client_to_server_tx, client_to_server_rx) = tokio::io::duplex(1 << 20);
     let (server_to_client_tx, server_to_client_rx) = tokio::io::duplex(1 << 20);
@@ -432,8 +437,7 @@ async fn client_disconnect_mid_elicitation_ends_promptly_without_resolution() {
         drop(client);
     };
 
-    // The session must end well before the 120s elicitation timeout: the
-    // reader fails the pending request on EOF instead of waiting it out.
+    // The default human wait has no deadline: EOF must end it explicitly.
     let (server_result, ()) = tokio::time::timeout(Duration::from_secs(10), async {
         tokio::join!(server, script)
     })
@@ -446,4 +450,59 @@ async fn client_disconnect_mid_elicitation_ends_promptly_without_resolution() {
         "a disconnect must never resolve the decision"
     );
     assert!(backend.deny.lock().expect("deny lock").is_none());
+}
+
+#[tokio::test]
+async fn cancel_tool_call_dismisses_prompt_and_keeps_session_usable() {
+    let (port, backend) = start_mock_backend().await;
+    let (server, mut client) = wire_session(port);
+    let script = async move {
+        client.initialize(true).await;
+        client.call_denied_action().await;
+        let prompt = client.recv().await;
+        client
+            .send(json!({"jsonrpc":"2.0", "method":"notifications/cancelled",
+            "params":{"requestId":2}}))
+            .await;
+        let cancellation = client.recv().await;
+        assert_eq!(cancellation["method"], "notifications/cancelled");
+        assert_eq!(cancellation["params"]["requestId"], prompt["id"]);
+        // Even a late accept must not resolve the canceled tool's decision.
+        client
+            .send(json!({"jsonrpc":"2.0", "id":prompt["id"],
+            "result":{"action":"accept","content":{"decision":"approve_narrow"}}}))
+            .await;
+        client
+            .send(json!({"jsonrpc":"2.0", "id":3, "method":"tools/call",
+            "params":{"name":"execute","arguments":{"code":"return 1"}}}))
+            .await;
+        let resumed = client.recv().await;
+        assert_eq!(resumed["id"], 3);
+        assert_eq!(resumed["result"]["content"][0]["text"], "1");
+        drop(client);
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(3), async {
+        tokio::join!(server, script)
+    })
+    .await
+    .expect("canceled prompt must not wedge dispatch");
+    result.expect("server loop");
+    assert!(backend.approve.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn broken_output_ends_session_even_when_input_stays_open() {
+    let (port, _) = start_mock_backend().await;
+    let (server, client) = wire_session(port);
+    let FakeClient { mut writer, reader } = client;
+    drop(reader);
+    writer
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n")
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(3), server)
+        .await
+        .expect("writer failure must terminate the loop");
+    assert!(result.is_err(), "transport failure must propagate");
+    drop(writer);
 }

@@ -39,6 +39,13 @@ pub fn odata_error(status: StatusCode, code: &str, message: &str) -> ODataRespon
     }
 }
 
+/// A resumable authorization denial with an authoritative decision identifier.
+pub fn odata_denial(message: &str, decision_id: &str) -> ODataResponse {
+    let mut response = odata_error(StatusCode::FORBIDDEN, "AuthorizationDenied", message);
+    response.body["decision_id"] = serde_json::Value::String(decision_id.to_string());
+    response
+}
+
 /// An OData XML response (for $metadata).
 pub struct ODataXmlResponse {
     /// The XML body content.
@@ -97,6 +104,14 @@ impl IntoResponse for ODataStreamResponse {
 mod tests {
     use super::*;
     use axum::response::IntoResponse;
+
+    #[test]
+    fn denial_identity_survives_server_to_sandbox_round_trip() {
+        let response = odata_denial("Order('PD-victim'). Decision PD-real created.", "PD-real");
+        let encoded = serde_json::to_string(&response.body).unwrap();
+        let parsed = temper_sandbox::helpers::format_authz_denied(&encoded).unwrap();
+        assert_eq!(parsed["decision_id"], "PD-real");
+    }
 
     #[test]
     fn odata_error_format() {

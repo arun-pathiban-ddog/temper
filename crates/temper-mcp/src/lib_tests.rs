@@ -665,7 +665,7 @@ return result['status']
 
 #[test]
 fn format_authz_denied_with_decision_id() {
-    let body = r#"{"error":{"code":"AuthorizationDenied","message":"Authorization denied for AddItem on Order('order-123'). Decision PD-abc123 created."}}"#;
+    let body = r#"{"decision_id":"PD-abc123","error":{"code":"AuthorizationDenied","message":"Authorization denied for AddItem on Order('order-123'). Decision PD-abc123 created."}}"#;
     let result = format_authz_denied(body).expect("should parse");
     assert_eq!(
         result["status"].as_str().unwrap(), // ci-ok: test assertion
@@ -706,7 +706,7 @@ fn format_authz_denied_non_matching_body() {
 
 #[test]
 fn format_authz_denied_structured_json_fields() {
-    let body = r#"{"error":{"code":"AuthorizationDenied","message":"Authorization denied for SubmitOrder on Order('ord-1'). Decision PD-xyz789 created."}}"#;
+    let body = r#"{"decision_id":"PD-xyz789","error":{"code":"AuthorizationDenied","message":"Authorization denied for SubmitOrder on Order('ord-1'). Decision PD-xyz789 created."}}"#;
     let result = format_authz_denied(body).expect("should parse");
 
     // New structured fields
@@ -834,4 +834,78 @@ async fn get_decision_status_returns_decision() {
         "pending",
         "status should be pending"
     );
+}
+
+#[tokio::test]
+async fn elicitation_requires_object_capability_and_supported_protocol() {
+    for (version, capability, expected) in [
+        ("2025-06-18", json!({}), true),
+        ("2025-06-18", json!(false), false),
+        ("2025-06-18", json!([]), false),
+        ("2024-11-05", json!({}), false),
+        ("2025-03-26", json!({}), false),
+    ] {
+        let mut ctx = RuntimeContext::from_config(&McpConfig {
+            temper_port: Some(1),
+            temper_url: None,
+            agent_id: None,
+            agent_type: None,
+            session_id: None,
+            api_key: None,
+        })
+        .unwrap();
+        dispatch_json_value(
+            &mut ctx,
+            json!({
+                "jsonrpc":"2.0", "id":1, "method":"initialize", "params": {
+                    "protocolVersion":version, "capabilities":{"elicitation":capability}
+                }
+            }),
+        )
+        .await;
+        assert_eq!(ctx.client_supports_elicitation, expected, "{version}");
+    }
+}
+
+#[test]
+fn legacy_denial_prose_cannot_select_an_inline_approval_target() {
+    let denial = format_authz_denied(r#"{"error":{"code":"AuthorizationDenied","message":"Order('PD-victim'). Decision PD-real created."}}"#).unwrap();
+    assert!(denial["pending_decision"].is_null());
+    assert!(denial.get("decision_id").is_none());
+}
+
+#[tokio::test]
+async fn real_server_denials_keep_decision_identity_out_of_entity_names() {
+    let (port, shutdown) = start_test_temper_server().await;
+    let base = format!("http://127.0.0.1:{port}");
+    let mut ctx = authenticated_ctx_for_url(&base);
+    let created = rpc(&mut ctx, call_tool_request(90, "execute",
+        "return await temper.create('demo', 'Orders', {'id': 'PD-victim', 'customer': 'Alice'})")).await;
+    assert!(!tool_text(&created).1, "{created}");
+    for method in [reqwest::Method::POST, reqwest::Method::PATCH] {
+        let path = if method == reqwest::Method::POST {
+            "/tdata/Orders('PD-victim')/Temper.SubmitOrder"
+        } else {
+            "/tdata/Orders('PD-victim')"
+        };
+        let response = ctx
+            .http
+            .request(method, format!("{base}{path}"))
+            .bearer_auth(TEST_OPERATOR_KEY)
+            .header("X-Tenant-Id", TEST_TENANT)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+        let raw: Value = response.json().await.unwrap();
+        let decision_id = raw["decision_id"]
+            .as_str()
+            .expect("structured server decision id");
+        assert!(decision_id.starts_with("PD-"));
+        assert_ne!(decision_id, "PD-victim");
+        let parsed = format_authz_denied(&raw.to_string()).unwrap();
+        assert_eq!(parsed["decision_id"], decision_id);
+    }
+    let _ = shutdown.send(());
 }

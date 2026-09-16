@@ -64,22 +64,19 @@ pub(super) async fn dispatch_json_value(ctx: &mut RuntimeContext, raw: Value) ->
                 }
             }
 
-            // Capture the client's declared elicitation capability; without
-            // it, Cedar denials pass through untouched (ADR-0173).
-            ctx.client_supports_elicitation = request
-                .params
-                .pointer("/capabilities/elicitation")
-                .is_some_and(|value| !value.is_null());
-
-            // Initialize OTS trajectory capture after handshake.
-            ctx.init_trajectory();
-
             let requested_version = request
                 .params
                 .get("protocolVersion")
                 .and_then(Value::as_str);
+            let protocol_version = negotiate_protocol_version(requested_version);
+            ctx.client_supports_elicitation = protocol_version == MCP_LATEST_PROTOCOL_VERSION
+                && request
+                    .params
+                    .pointer("/capabilities/elicitation")
+                    .is_some_and(Value::is_object);
+            ctx.init_trajectory();
             Ok(json!({
-                "protocolVersion": negotiate_protocol_version(requested_version),
+                "protocolVersion": protocol_version,
                 "capabilities": {
                     "tools": {
                         "listChanged": false
@@ -141,13 +138,12 @@ pub(super) async fn dispatch_json_value(ctx: &mut RuntimeContext, raw: Value) ->
                 other => (Err(anyhow!(format!("unknown tool '{other}'"))), Vec::new()),
             };
 
-            // Record the execute call as an OTS trajectory turn.
-            ctx.record_execute_turn(code, &tool_result);
-
             // If Cedar denied a call and the client supports elicitation,
             // offer the decision to the human before returning (ADR-0173).
             let tool_result =
                 crate::elicit::apply_denial_elicitation(ctx, tool_result, denials).await;
+            // Include the human outcome in the same recorded tool turn.
+            ctx.record_execute_turn(code, &tool_result);
 
             Ok(match tool_result {
                 Ok(text) => json!({
