@@ -7,8 +7,8 @@
 //! the decision, resolves it against the Temper server with the operator
 //! credential (`TEMPER_API_KEY`), and returns the tool result annotated so
 //! the model can retry the action. The model never answers the elicitation —
-//! the client harness renders it to the human; decline, cancel, or timeout
-//! leaves the decision pending and the result unchanged (fail closed).
+//! the client harness renders it to the human. Decline, cancel, disconnect,
+//! or an explicitly configured expiry leaves the decision pending (fail closed).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,10 +20,6 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
 use super::runtime::RuntimeContext;
-
-/// Default seconds an elicitation waits for the human before the decision is
-/// left pending. Override with `TEMPER_MCP_ELICIT_TIMEOUT_SECS`.
-const DEFAULT_ELICIT_TIMEOUT_SECS: u64 = 120;
 
 /// Field name and choice values for the elicitation schema.
 pub(crate) const CHOICE_APPROVE_NARROW: &str = "approve_narrow";
@@ -112,7 +108,7 @@ impl ClientRequester {
         &self,
         method: &str,
         params: Value,
-        timeout: Duration,
+        timeout: Option<Duration>,
     ) -> Result<Value, ClientRequestError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let key = Value::from(id).to_string();
@@ -130,11 +126,25 @@ impl ClientRequester {
             return Err(ClientRequestError::Closed);
         }
 
+        let Some(timeout) = timeout else {
+            // A human prompt remains actionable until the human answers or
+            // the reader closes the session and calls fail_all().
+            return rx.await.map_err(|_| ClientRequestError::Closed);
+        };
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(_closed)) => Err(ClientRequestError::Closed),
             Err(_elapsed) => {
                 self.pending.remove(&key);
+                // Tell the client that this prompt is no longer actionable.
+                let _ = self.outbound.send(json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/cancelled",
+                    "params": {
+                        "requestId": id,
+                        "reason": "Approval request expired; the decision remains pending"
+                    }
+                }));
                 Err(ClientRequestError::Timeout)
             }
         }
@@ -284,19 +294,19 @@ pub(crate) fn elicit_flag_enabled(raw: Option<&str>) -> bool {
     !matches!(normalized.as_deref(), Some("0" | "false" | "off" | "no"))
 }
 
-/// Seconds to wait for the human's elicitation answer.
-pub(crate) fn elicit_timeout_secs(raw: Option<&str>) -> u64 {
+/// Optional operator deadline. Human interaction has no deadline by default.
+pub(crate) fn elicit_timeout_secs(raw: Option<&str>) -> Option<u64> {
     raw.and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|secs| *secs > 0)
-        .unwrap_or(DEFAULT_ELICIT_TIMEOUT_SECS)
 }
 
-fn elicit_timeout() -> Duration {
-    Duration::from_secs(elicit_timeout_secs(
+fn elicit_timeout() -> Option<Duration> {
+    elicit_timeout_secs(
         std::env::var("TEMPER_MCP_ELICIT_TIMEOUT_SECS")
             .ok()
             .as_deref(),
-    )) // determinism-ok: MCP client runtime config
+    )
+    .map(Duration::from_secs) // determinism-ok: MCP client runtime config
 }
 
 /// Resolve one decision against the Temper server with the MCP's own
@@ -341,7 +351,8 @@ async fn resolve_decision(
 /// One elicitation per tool call: the first unique denial is put to the
 /// human; any further pending decision ids are reported in the annotation so
 /// the model can retry and trigger them individually. Decline, cancel,
-/// timeout, or an explicit leave-pending returns the result unchanged — the
+/// or an explicit leave-pending returns the result unchanged. Configured expiry
+/// cancels the prompt and reports that no approval was recorded. The
 /// decision is never resolved without an affirmative human answer, and the
 /// action is never retried from inside the MCP (the model owns the loop).
 pub(crate) async fn apply_denial_elicitation(
@@ -376,7 +387,14 @@ pub(crate) async fn apply_denial_elicitation(
                 decision_id = %denial.decision_id,
                 "elicitation timed out; decision left pending"
             );
-            return tool_result;
+            return annotate_tool_result(
+                tool_result,
+                json!({
+                    "approval": "expired",
+                    "decision_id": denial.decision_id,
+                    "note": "The approval prompt expired and was canceled. No approval was recorded."
+                }),
+            );
         }
         Err(ClientRequestError::Closed) => {
             tracing::warn!(

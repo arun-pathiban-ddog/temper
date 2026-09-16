@@ -36,7 +36,7 @@ async fn client_requester_correlates_response_by_id() {
     let request_fut = requester.request(
         "elicitation/create",
         json!({"message": "hi"}),
-        std::time::Duration::from_secs(5),
+        Some(std::time::Duration::from_secs(5)),
     );
     let answer = async {
         let sent = rx.recv().await.expect("request emitted");
@@ -56,7 +56,7 @@ async fn client_requester_correlates_response_by_id() {
 
 #[tokio::test]
 async fn client_requester_times_out_and_clears_pending() {
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let pending = PendingClientRequests::default();
     let requester = ClientRequester::new(tx, pending.clone());
 
@@ -64,10 +64,14 @@ async fn client_requester_times_out_and_clears_pending() {
         .request(
             "elicitation/create",
             json!({}),
-            std::time::Duration::from_millis(10),
+            Some(std::time::Duration::from_millis(10)),
         )
         .await;
     assert_eq!(result.unwrap_err(), ClientRequestError::Timeout);
+    let prompt = rx.recv().await.expect("prompt");
+    let canceled = rx.recv().await.expect("cancellation");
+    assert_eq!(canceled["method"], "notifications/cancelled");
+    assert_eq!(canceled["params"]["requestId"], prompt["id"]);
     // The pending slot is cleared: a late response no longer matches.
     assert!(!pending.resolve(json!({"jsonrpc": "2.0", "id": 1, "result": {}})));
 }
@@ -81,7 +85,7 @@ async fn client_requester_reports_closed_channel() {
         .request(
             "elicitation/create",
             json!({}),
-            std::time::Duration::from_secs(1),
+            Some(std::time::Duration::from_secs(1)),
         )
         .await;
     assert_eq!(result.unwrap_err(), ClientRequestError::Closed);
@@ -219,15 +223,11 @@ fn elicit_flag_defaults_enabled_and_honors_off_switch() {
 }
 
 #[test]
-fn elicit_timeout_parses_with_default() {
-    assert_eq!(elicit_timeout_secs(None), 120);
-    assert_eq!(elicit_timeout_secs(Some("30")), 30);
-    assert_eq!(
-        elicit_timeout_secs(Some("0")),
-        120,
-        "zero falls back to default"
-    );
-    assert_eq!(elicit_timeout_secs(Some("nope")), 120);
+fn elicit_timeout_is_opt_in() {
+    assert_eq!(elicit_timeout_secs(None), None);
+    assert_eq!(elicit_timeout_secs(Some("30")), Some(30));
+    assert_eq!(elicit_timeout_secs(Some("0")), None);
+    assert_eq!(elicit_timeout_secs(Some("nope")), None);
 }
 
 #[test]
@@ -258,4 +258,47 @@ fn annotate_merges_into_object_and_wraps_scalars() {
     assert!(text.contains("KeyError"));
     assert!(text.contains("human-elicitation"));
     assert!(text.contains("PD-1"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn human_approval_after_three_minutes_still_reaches_waiter() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let pending = PendingClientRequests::default();
+    let requester = ClientRequester::new(tx, pending.clone());
+    let request = requester.request(
+        "elicitation/create",
+        json!({}),
+        elicit_timeout_secs(None).map(std::time::Duration::from_secs),
+    );
+    let answer = async {
+        let sent = rx.recv().await.expect("prompt emitted");
+        tokio::time::sleep(std::time::Duration::from_secs(189)).await;
+        assert!(
+            pending.resolve(json!({
+                "jsonrpc": "2.0", "id": sent["id"],
+                "result": {"action": "accept", "content": {"decision": "approve_broad"}}
+            })),
+            "a displayed human prompt must still have a response waiter"
+        );
+    };
+    let (response, ()) = tokio::join!(request, answer);
+    assert_eq!(
+        parse_elicit_choice(&response.expect("human response")),
+        Some(ElicitChoice::ApproveBroad)
+    );
+}
+
+#[tokio::test]
+async fn untimed_human_prompt_ends_on_disconnect() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let pending = PendingClientRequests::default();
+    let requester = ClientRequester::new(tx, pending.clone());
+    let request = requester.request("elicitation/create", json!({}), None);
+    let disconnect = async {
+        rx.recv().await.expect("prompt emitted");
+        pending.fail_all();
+    };
+    let (result, ()) = tokio::join!(request, disconnect);
+    assert_eq!(result.unwrap_err(), ClientRequestError::Closed);
+    assert!(!pending.resolve(json!({"id": 1, "result": {"action": "accept"}})));
 }

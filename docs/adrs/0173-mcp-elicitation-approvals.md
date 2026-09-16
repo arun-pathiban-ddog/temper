@@ -66,7 +66,7 @@ channels. The reader classifies each inbound frame: a JSON-RPC *response*
 (id + result/error, no method) resolves the matching entry in a pending
 server→client request map; everything else queues for the sequential
 dispatch loop. `ClientRequester` allocates ids from a server-side counter
-and awaits the oneshot with a timeout.
+and awaits the response until the human answers or the client disconnects. An operator may explicitly configure a deadline.
 
 Because dispatch stays strictly sequential, at most one elicitation is in
 flight per session by construction — later client requests wait in the
@@ -115,9 +115,11 @@ the bearer.
 ### Sub-Decision 5: Fail closed; the model owns the retry
 
 A decision is resolved only on an explicit `accept` with a recognized
-choice. Decline, cancel, timeout (default 120s,
-`TEMPER_MCP_ELICIT_TIMEOUT_SECS`), a malformed answer, or a closed channel
-leaves the decision pending and the tool result unchanged. The MCP never
+choice. Decline, cancel, a malformed answer, or a closed channel
+leaves the decision pending. Human prompts have no default deadline: the
+response waiter stays alive while the prompt can be answered. An explicit
+`TEMPER_MCP_ELICIT_TIMEOUT_SECS` deadline sends `notifications/cancelled`
+and annotates the tool result as expired, with no approval recorded. The MCP never
 retries the denied action itself: on approval the tool result is annotated
 (`"approval": "granted by human via elicitation"`, decision id, scope,
 `"retry": "re-invoke the original action now"`) and the model re-invokes.
@@ -157,7 +159,7 @@ swallowed.
   → resolved as `operator` (status `approved`). The productized version of
   this two-key wiring is the MCP OAuth flow (see the linked Linear ticket).
 - An elicitation blocks the session's dispatch queue for up to the
-  timeout; concurrent client requests wait behind it.
+  human response or client disconnect; concurrent client requests wait behind it.
 
 ### Negative
 
