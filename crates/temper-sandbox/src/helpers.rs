@@ -139,15 +139,13 @@ pub fn format_authz_denied(body: &str) -> Option<Value> {
         .and_then(Value::as_str)
         .unwrap_or("Authorization denied");
 
-    // Extract decision ID from the message (format: "PD-<uuid>")
-    let decision_id = if let Some(pos) = message.find("PD-") {
-        let id_end = message[pos..]
-            .find(|c: char| c.is_whitespace() || c == ')' || c == '"')
-            .unwrap_or(message.len() - pos);
-        Some(message[pos..pos + id_end].to_string())
-    } else {
-        None
-    };
+    // Only the server's structured identity is an approval target. Entity
+    // names and denial prose can contain arbitrary PD-like text.
+    let decision_id = json
+        .get("decision_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
 
     let default_hint = "A human must approve this action. Use `await temper.poll_decision(tenant, decision_id)` to wait, then retry.".to_string();
     let hint = decision_id.as_ref().map_or(default_hint.clone(), |did| {
@@ -269,8 +267,7 @@ mod tests {
 
     #[test]
     fn format_authz_denied_valid() {
-        let body =
-            r#"{"error":{"code":"AuthorizationDenied","message":"Cedar denied (PD-abc123)"}}"#;
+        let body = r#"{"decision_id":"PD-abc123","error":{"code":"AuthorizationDenied","message":"Cedar denied (PD-abc123)"}}"#;
         let result = format_authz_denied(body);
         assert!(result.is_some());
         let val = result.unwrap();

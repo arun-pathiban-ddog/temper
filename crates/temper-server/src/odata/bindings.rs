@@ -17,7 +17,7 @@ use super::response::annotate_entity;
 use crate::authz::{DenialInput, record_authz_denial};
 use crate::blobs::hydrate_blob_refs_for_tenant;
 use crate::request_context::AgentContext;
-use crate::response::{ODataResponse, odata_error};
+use crate::response::{ODataResponse, odata_denial, odata_error};
 use crate::state::{BoundActionHookContext, DispatchCommand, DispatchError, ServerState};
 
 fn idempotency_actor_key(tenant: &TenantId, entity_type: &str, entity_id: &str) -> String {
@@ -157,12 +157,7 @@ pub(super) async fn dispatch_bound_action(
         let end_time: std::time::SystemTime = sim_now().into();
         http_span.end_with_timestamp(end_time);
         let reason_with_id = format!("{reason} (decision: {})", pd.id);
-        return odata_error(
-            StatusCode::FORBIDDEN,
-            "AuthorizationDenied",
-            &reason_with_id,
-        )
-        .into_response();
+        return odata_denial(&reason_with_id, &pd.id).into_response();
     }
 
     if let Err(error) = state.check_verification_gate(tenant, entity_type) {

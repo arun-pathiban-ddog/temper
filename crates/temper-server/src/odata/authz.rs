@@ -10,7 +10,7 @@ use temper_runtime::tenant::TenantId;
 
 use crate::authz::{DenialInput, record_authz_denial};
 use crate::request_context::AgentContext;
-use crate::response::odata_error;
+use crate::response::{odata_denial, odata_error};
 use crate::state::ServerState;
 
 pub(super) const CREATE_ACTION: &str = "create";
@@ -203,10 +203,9 @@ pub(super) async fn authorize_mutation(
     )
     .await;
 
-    Err(odata_error(
-        StatusCode::FORBIDDEN,
-        "AuthorizationDenied",
+    Err(odata_denial(
         &format!("{reason} (decision: {})", decision.id),
+        &decision.id,
     )
     .into_response())
 }

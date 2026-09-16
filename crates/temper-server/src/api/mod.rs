@@ -238,6 +238,7 @@ pub(crate) async fn require_policy_auth(
             (
                 StatusCode::FORBIDDEN,
                 axum::Json(serde_json::json!({
+                    "decision_id": pd.id,
                     "error": {
                         "code": "AuthorizationDenied",
                         "message": format!("{reason} Decision {}", pd.id),

@@ -70,8 +70,7 @@ Options:\n  --port <PORT>        Connect to a local Temper server on 127.0.0.1:<
     );
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = match parse_args() {
         Ok(config) => config,
         Err(error) => {
@@ -82,6 +81,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    run_stdio_server(config).await?;
-    Ok(())
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let result = runtime.block_on(run_stdio_server(config));
+    // Tokio stdio uses blocking OS calls that task cancellation cannot stop.
+    // The MCP loop has already drained output or reported transport failure.
+    runtime.shutdown_timeout(std::time::Duration::from_secs(1));
+    result.map_err(Into::into)
 }
