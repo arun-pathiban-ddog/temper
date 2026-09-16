@@ -1,5 +1,5 @@
 //! Supervised MCP stdio transport, including human request cancellation.
-use crate::elicit::{ClientRequester, PendingClientRequests, is_client_response};
+use crate::client_requests::{ClientRequester, PendingClientRequests, is_client_response};
 use crate::protocol::{dispatch_json_value, json_rpc_error};
 use crate::runtime::RuntimeContext;
 use crate::trajectory_bounds::{MAX_STDIO_LINE_BYTES, StdioFrame, read_stdio_frame};

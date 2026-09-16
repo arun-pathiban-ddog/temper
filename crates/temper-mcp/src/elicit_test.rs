@@ -1,7 +1,9 @@
 //! Unit tests for the elicitation protocol pieces (`elicit.rs`).
 
 use super::*;
+use crate::client_requests::{ClientRequester, PendingClientRequests, is_client_response};
 use serde_json::json;
+use std::sync::Arc;
 
 #[test]
 fn is_client_response_classifies_messages() {

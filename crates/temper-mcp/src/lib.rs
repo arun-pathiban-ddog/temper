@@ -1,5 +1,6 @@
 //! stdio MCP server exposing Temper Code Mode tools.
 
+mod client_requests;
 mod code_analysis;
 mod elicit;
 mod protocol;

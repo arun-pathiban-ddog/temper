@@ -13,9 +13,8 @@ use tokio::io::{self, BufReader};
 
 use super::McpConfig;
 use super::code_analysis::{extract_temper_call_metadata, extract_trajectory_actions_from_code};
-use crate::elicit::{
-    ClientRequester, DeniedDecision, denial_from_dispatch_value, elicit_flag_enabled,
-};
+use crate::client_requests::ClientRequester;
+use crate::elicit::{DeniedDecision, denial_from_dispatch_value, elicit_flag_enabled};
 use crate::trajectory_bounds::{
     MAX_TRAJECTORY_TOTAL_BYTES, MAX_TRAJECTORY_TURNS, TRAJECTORY_TURN_ENVELOPE_BYTES,
     bounded_trajectory_actions, bump_seen, floor_char_boundary, json_string_cost, json_value_cost,
