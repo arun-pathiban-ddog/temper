@@ -36,7 +36,7 @@ where
     let reader_pending = pending.clone();
     let reader_active = active.clone();
     let reader_out = out_tx.clone();
-    let reader_task = tokio::spawn(async move {
+    let mut reader_task = tokio::spawn(async move {
         let result = read_inbound(
             reader,
             in_tx,
@@ -50,48 +50,67 @@ where
         result
     });
 
-    let dispatch = async {
-        while let Some(message) = in_rx.recv().await {
-            let canceled = active.begin(message.get("id").cloned());
-            let response = tokio::select! {
-                biased;
-                _ = canceled => {
-                    pending.cancel_all(&out_tx).await;
-                    None
+    let mut writer_finished = false;
+    let mut reader_finished = false;
+    let mut result = {
+        let dispatch = async {
+            while let Some(message) = in_rx.recv().await {
+                let canceled = active.begin(message.get("id").cloned());
+                let response = tokio::select! {
+                    biased;
+                    _ = canceled => {
+                        pending.cancel_all(&out_tx).await;
+                        None
+                    }
+                    response = dispatch_json_value(&mut ctx, message) => response,
+                };
+                active.clear();
+                if let Some(response) = response {
+                    out_tx
+                        .send(response)
+                        .await
+                        .map_err(|_| anyhow::anyhow!("MCP output closed"))?;
                 }
-                response = dispatch_json_value(&mut ctx, message) => response,
-            };
-            active.clear();
-            if let Some(response) = response {
-                out_tx
-                    .send(response)
-                    .await
-                    .map_err(|_| anyhow::anyhow!("MCP output closed"))?;
+            }
+            Ok::<(), anyhow::Error>(())
+        };
+        tokio::pin!(dispatch);
+        loop {
+            tokio::select! {
+                result = &mut dispatch => break result,
+                result = &mut writer_task => {
+                    writer_finished = true;
+                    break result.map_err(anyhow::Error::from).and_then(|r| r);
+                }
+                result = &mut reader_task, if !reader_finished => {
+                    reader_finished = true;
+                    if let Err(error) = result.map_err(anyhow::Error::from).and_then(|r| r) {
+                        break Err(error);
+                    }
+                    // Clean EOF may drain queued requests. An input error
+                    // must interrupt dispatch, even if output is blocked.
+                }
             }
         }
-        Ok::<(), anyhow::Error>(())
-    };
-    let (mut result, writer_finished) = tokio::select! {
-        result = dispatch => (result, false),
-        result = &mut writer_task => (result.map_err(anyhow::Error::from).and_then(|r| r), true),
     };
     pending.fail_all();
     active.clear();
-    // If dispatch drained, the reader has finished; otherwise stop it after
-    // an output failure. Preserve actual I/O errors for the supervisor.
-    if !reader_task.is_finished() {
-        reader_task.abort();
-    }
-    match reader_task.await {
-        Ok(reader_result) => result = result.and(reader_result),
-        Err(error) if !error.is_cancelled() => result = result.and(Err(error.into())),
-        Err(_) => {}
+    if !reader_finished {
+        if !reader_task.is_finished() {
+            reader_task.abort();
+        }
+        match reader_task.await {
+            Ok(reader_result) => result = result.and(reader_result),
+            Err(error) if !error.is_cancelled() => result = result.and(Err(error.into())),
+            Err(_) => {}
+        }
     }
     ctx.requester = None;
     drop(out_tx);
     if !writer_finished {
         if result.is_err() {
             writer_task.abort();
+            let _ = writer_task.await;
         } else {
             result = writer_task
                 .await

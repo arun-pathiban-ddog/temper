@@ -61,3 +61,36 @@ async fn saturated_queues_close_instead_of_blocking_response_reader() {
         assert!(in_rx.len() + out_rx.len() <= 1);
     }
 }
+
+#[tokio::test]
+async fn input_failure_terminates_even_with_output_backpressure() {
+    let ctx = RuntimeContext::from_config(&crate::McpConfig {
+        temper_port: Some(1),
+        temper_url: None,
+        agent_id: None,
+        agent_type: None,
+        session_id: None,
+        api_key: None,
+    })
+    .unwrap();
+    // Fill the output mailbox, queue ordinary requests, then make the reader
+    // fail while the writer cannot drain. Dispatch cannot deliver its replies.
+    let input = format!(
+        "{}{}invalid\n",
+        "invalid\n".repeat(64),
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n".repeat(3)
+    );
+    let (writer, _unread_output) = tokio::io::duplex(1);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        run_loop(ctx, std::io::Cursor::new(input.into_bytes()), writer),
+    )
+    .await
+    .expect("input failure must interrupt blocked dispatch");
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("output queue unavailable")
+    );
+}
