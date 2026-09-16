@@ -1,6 +1,6 @@
 # Decisions
 
-## Human response lifetime
+## D1: Human response lifetime
 
 **Decision:** Keep a human prompt pending until the human responds or the client connection closes, unless an operator explicitly configures a deadline.
 
@@ -12,7 +12,7 @@
 
 **Where:** `crates/temper-mcp/src/elicit.rs`, existing PR #436.
 
-## Existing proposal
+## D2: Existing proposal
 
 **Decision:** Continue the existing PR #436 approval proposal rather than create a second implementation.
 
@@ -24,7 +24,7 @@
 
 **Where:** `https://github.com/nerdsane/temper/pull/436`; isolated branch `codex/approval-response-lifetime` merged with current main.
 
-## Transport lifetime and cancellation
+## D3: Transport lifetime and cancellation
 
 **Decision:** Bound the transport queues, propagate transport failures, and cancel the outstanding human prompt when its originating tool call is canceled. Give the post-answer HTTP resolution its own 30-second network deadline.
 
@@ -36,7 +36,7 @@
 
 **Where:** `crates/temper-mcp/src/runtime.rs`, `crates/temper-mcp/src/elicit.rs`, PR #436.
 
-## Structured decision identity
+## D4: Structured decision identity
 
 **Decision:** Carry the recorded decision ID as a structured server field and use only that field for inline approval; never infer an approval target from human-readable text.
 
@@ -48,7 +48,7 @@
 
 **Where:** OData denial responses, `temper-sandbox::helpers::format_authz_denied`, and the MCP mock transport regression in PR #436.
 
-## Native process shutdown
+## D5: Native process shutdown
 
 **Decision:** Bound Tokio runtime shutdown to one second after the MCP loop finishes, in both MCP executable entry points.
 
