@@ -55,20 +55,48 @@ fn wasm_module_security_context(module_name: &str) -> SecurityContext {
             attributes: std::collections::HashMap::new(), // determinism-ok: Principal uses HashMap
         },
         context_attrs: std::collections::HashMap::new(), // determinism-ok: SecurityContext uses HashMap
-        correlation_id: uuid::Uuid::now_v7().to_string(), // determinism-ok: correlation only
+        correlation_id: temper_runtime::scheduler::sim_uuid().to_string(),
     }
 }
 
+/// The capability a guest presents on its internal calls back into the kernel.
+///
+/// It carries the caller's identity — a triggered integration acts for whoever
+/// caused the transition, which is what every tenant's policy was written
+/// against — plus `context.module`, the name of the module making the call,
+/// so a policy can also grant a module reach in its own right (ARN-519). The
+/// principal is never rewritten, and the module attribute is set or cleared
+/// on every issue so it names this hop, never a previous one.
+///
+/// A caller with no security context still gets no capability; that is the
+/// sentinel and compensation dispatches, and their integrations' internal
+/// calls stay refused at the edge as before. A public `git push` is not that
+/// case: the edge admits it as the anonymous principal, so the ingest
+/// integration acts as anonymous and the policy decides whether
+/// `context.module` earns the object-cache write.
 pub(crate) fn internal_http_capability_issuer(
     state: &crate::state::ServerState,
     tenant: &TenantId,
     security_context: Option<&SecurityContext>,
+    module: Option<&str>,
 ) -> Option<InternalHttpCapabilityIssuerFn> {
     let security_context = security_context?;
     if security_context.principal.kind == PrincipalKind::System {
         return None;
     }
-    let authenticated = AuthenticatedRequestContext::new(tenant.clone(), security_context.clone());
+    let mut security_context = security_context.clone();
+    match module {
+        Some(module) => {
+            security_context.context_attrs.insert(
+                "module".to_string(),
+                serde_json::Value::String(module.to_string()),
+            );
+        }
+        None => {
+            security_context.context_attrs.remove("module");
+        }
+    }
+    let authenticated = AuthenticatedRequestContext::new(tenant.clone(), security_context);
     let tenant = tenant.clone();
     let store = state.internal_invocation_credentials.clone();
     Some(Arc::new(move |method, url| {
@@ -138,8 +166,9 @@ pub(crate) fn authorized_http_endpoint_host(
     // that expects the kernel to scope its reads, so this applies to the
     // HttpEndpoint path only.
     let module_identity = wasm_module_security_context(module_name);
-    let capability_issuer = internal_http_capability_issuer(state, tenant, Some(&module_identity))
-        .ok_or_else(|| "HttpEndpoint caller authority cannot be delegated".to_string())?;
+    let capability_issuer =
+        internal_http_capability_issuer(state, tenant, Some(&module_identity), Some(module_name))
+            .ok_or_else(|| "HttpEndpoint caller authority cannot be delegated".to_string())?;
     let internal_api_url = internal_api_base_url(state);
     let local_blob_interceptor = local_blob_binary_interceptor(
         state.clone(),
@@ -815,6 +844,7 @@ impl crate::state::ServerState {
                     self,
                     ctx.entity_ref.tenant,
                     ctx.agent_ctx.security_ctx.as_ref(),
+                    Some(&module_name),
                 );
                 let mut production_host_builder =
                     ProductionWasmHost::with_timeout(tenant_secrets, http_timeout)
