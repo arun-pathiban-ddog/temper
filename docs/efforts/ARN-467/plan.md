@@ -22,3 +22,12 @@ Foundry and Copy delivery are not waiting on this migration. Local worktree exec
 3. Bind private persisted identity to server/tenant and restore it on reconnect while retaining the operator solely for human administration and approvals.
 4. Verify negative consent, real server provisioning, ordinary two-key approvals, persistence, repeated setup, and failure boundaries. Run the required review panel and publish the connector change.
 5. Install the reviewed connector, obtain genuine native setup for each authorized service, verify approvals and caller propagation, then complete the original Foundry SDLC deployment gates.
+
+## Repair missing read decisions
+
+1. Reproduce collection/entity and app-guide denials without decision IDs using authenticated agent requests.
+2. Preserve typed denial metadata until the explicit HTTP response boundary, where the authenticated request and session remain available. Reuse existing decision recording and human approval semantics. Do not record discarded row-filter denials.
+3. Verify denial, decision identity, no data exposure, silent row filtering, and grant/retry. Run native MCP against the local server before release.
+4. Merge, coordinate the existing TemperPaw release owner, and verify the same production requests in the blocked Temper task before claiming access restored.
+
+The demo owner also reproduced the same silent denial on pinned installation. Include that guard and its narrow MCP adapter in this repair; retain the tenant-first signature, reject cross-tenant approval requests, and verify existing message-based denial parsing.

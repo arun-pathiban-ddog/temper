@@ -1026,3 +1026,122 @@ async fn patched_fields_survive_a_server_restart_over_the_http_stack() {
 
     let _ = std::fs::remove_file(db_path);
 }
+
+#[tokio::test]
+async fn requested_agent_read_denials_create_decisions() {
+    let (state, _sim) = build_default_state(947, "read-approval-boundary");
+    let tenant = TenantId::default();
+    dispatch(
+        &state,
+        &tenant,
+        "Order",
+        "private-order",
+        "Create",
+        serde_json::json!({}),
+    )
+    .await
+    .expect("create");
+    state
+        .authz
+        .reload_tenant_policies("default", "")
+        .expect("deny by default");
+    let mut decisions = state.pending_decision_tx.subscribe();
+    for (path, action, resource_id) in [
+        ("/tdata/Orders", "list", ""),
+        ("/tdata/Orders('private-order')", "read", "private-order"),
+    ] {
+        let mut request = Request::get(path).body(Body::empty()).unwrap();
+        request.extensions_mut().insert(
+            temper_authz::AuthenticatedRequestContext::new(
+                tenant.clone(),
+                temper_authz::SecurityContext::from_resolved_identity(
+                    "read-agent",
+                    "mcp-harness",
+                    None,
+                ),
+            )
+            .with_session_id(Some("read-session".to_string()))
+            .with_intent(Some("verify the live deployment".to_string())),
+        );
+        let response = build_router(state.clone()).oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let bytes = axum::body::to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let id = body["decision_id"]
+            .as_str()
+            .expect("agent read must surface a decision");
+        let decision = decisions.try_recv().expect("decision broadcast");
+        assert_eq!(decision.id, id);
+        assert_eq!(decision.action, action);
+        assert_eq!(decision.resource_id, resource_id);
+        assert_eq!(decision.tenant, "default");
+        assert_eq!(decision.agent_id, "read-agent");
+        assert_eq!(decision.session_id.as_deref(), Some("read-session"));
+        assert!(
+            !body.to_string().contains("total_amount"),
+            "denial must not expose row data"
+        );
+    }
+}
+
+#[tokio::test]
+async fn filtered_rows_and_sessionless_reads_do_not_create_decisions() {
+    let (state, _sim) = build_default_state(948, "silent-read-denials");
+    let tenant = TenantId::default();
+    dispatch(
+        &state,
+        &tenant,
+        "Order",
+        "hidden-order",
+        "Create",
+        serde_json::json!({}),
+    )
+    .await
+    .expect("create");
+    state
+        .authz
+        .reload_tenant_policies(
+            "default",
+            r#"permit(principal, action == Action::"list", resource is Order);"#,
+        )
+        .unwrap();
+    let mut decisions = state.pending_decision_tx.subscribe();
+    for (path, session, expected_status) in [
+        (
+            "/tdata/Orders?$count=true",
+            Some("read-session".to_string()),
+            StatusCode::OK,
+        ),
+        ("/tdata/Orders('hidden-order')", None, StatusCode::FORBIDDEN),
+    ] {
+        let mut request = Request::get(path).body(Body::empty()).unwrap();
+        request.extensions_mut().insert(
+            temper_authz::AuthenticatedRequestContext::new(
+                tenant.clone(),
+                temper_authz::SecurityContext::from_resolved_identity(
+                    "read-agent",
+                    "mcp-harness",
+                    None,
+                ),
+            )
+            .with_session_id(session),
+        );
+        let response = build_router(state.clone()).oneshot(request).await.unwrap();
+        assert_eq!(response.status(), expected_status);
+        let bytes = axum::body::to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body.get("decision_id").is_none());
+        if expected_status == StatusCode::OK {
+            assert_eq!(body["value"], serde_json::json!([]));
+            assert_eq!(body["@odata.count"], 0);
+        }
+        assert!(
+            decisions.try_recv().is_err(),
+            "hidden rows/passive requests must not create prompts"
+        );
+    }
+}
