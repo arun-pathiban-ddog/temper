@@ -119,28 +119,32 @@ pub(crate) async fn install_genesis_app(
         Ok(authenticated) => authenticated,
         Err(status) => return authorization_error(status),
     };
-    if let Err(status) = require_same_tenant(authenticated, &req.tenant).and_then(|_| {
-        require_resource_authorization(
-            &state,
-            authenticated,
-            PlatformResourceAuthorization {
-                action: "install_app",
-                resource_type: "App",
-                resource_id: &req.app_ref,
-                attrs: std::collections::BTreeMap::from([
-                    (
-                        "targetTenant".to_string(),
-                        serde_json::Value::String(req.tenant.clone()),
-                    ),
-                    (
-                        "registryTenant".to_string(),
-                        serde_json::Value::String(req.registry_tenant.clone()),
-                    ),
-                ]),
-            },
-        )
-    }) {
+    // A body cannot select another tenant, even through an approval request.
+    if let Err(status) = require_same_tenant(authenticated, &req.tenant) {
         return authorization_error(status);
+    }
+    if let Err(denial) = require_requested_resource_authorization(
+        &state,
+        authenticated,
+        PlatformResourceAuthorization {
+            action: "install_app",
+            resource_type: "App",
+            resource_id: &req.app_ref,
+            attrs: std::collections::BTreeMap::from([
+                (
+                    "targetTenant".to_string(),
+                    serde_json::Value::String(req.tenant.clone()),
+                ),
+                (
+                    "registryTenant".to_string(),
+                    serde_json::Value::String(req.registry_tenant.clone()),
+                ),
+            ]),
+        },
+    )
+    .await
+    {
+        return denial;
     }
     match crate::genesis_install::install_genesis_app_from_registry(&state, req).await {
         Ok(result) => (StatusCode::OK, Json(serde_json::json!(result))),

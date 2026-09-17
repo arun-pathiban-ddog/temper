@@ -29,3 +29,5 @@ Foundry and Copy delivery are not waiting on this migration. Local worktree exec
 2. Preserve typed denial metadata until the explicit HTTP response boundary, where the authenticated request and session remain available. Reuse existing decision recording and human approval semantics. Do not record discarded row-filter denials.
 3. Verify denial, decision identity, no data exposure, silent row filtering, and grant/retry. Run native MCP against the local server before release.
 4. Merge, coordinate the existing TemperPaw release owner, and verify the same production requests in the blocked Temper task before claiming access restored.
+
+The demo owner also reproduced the same silent denial on pinned installation. Include that guard and its narrow MCP adapter in this repair; retain the tenant-first signature, reject cross-tenant approval requests, and verify existing message-based denial parsing.

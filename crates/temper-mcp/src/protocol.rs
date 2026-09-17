@@ -243,9 +243,9 @@ DEVELOPER:\n\
 \x20 await temper.compile_wasm(tenant, module_name, rust_source) -> compile + upload WASM\n\
 \n\
 APP CATALOG:\n\
-\x20 await temper.list_apps() -> available pre-built apps (name, description, entity_types)\n\
-\x20 await temper.get_app(app_name) -> full app guide markdown (when to use, actions, examples)\n\
-\x20 await temper.install_app(app_name) -> install an app into the current tenant\n\
+\x20 await temper.list_apps(tenant) -> available pre-built apps (name, description, entity_types)\n\
+\x20 await temper.get_app(tenant, app_name) -> full app guide markdown (when to use, actions, examples)\n\
+\x20 await temper.install_app(tenant, app_ref) -> install a pinned owner/app@hash through the governed Genesis installer\n\
 \n\
 GOVERNANCE:\n\
 \x20 await temper.get_decisions(tenant, status?) -> list decisions\n\

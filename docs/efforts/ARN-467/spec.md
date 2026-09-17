@@ -42,3 +42,5 @@ Required proof includes real local Temper provisioning and subsequent denied act
 ## Agent read approval recovery
 
 An authenticated agent's explicitly requested read that Cedar denies must remain denied and return a pending decision tied to the exact principal, tenant, action, resource, and request session. A human grant and retry are required before data is returned. Collection row filtering must remain silent: hidden rows cannot create approval records or disclose their existence. Missing credentials, cross-tenant requests, and sessionless passive reads do not gain permissions or create prompts. Cover collection reads, explicit entity reads, and application catalog/guide reads.
+
+The same decision contract covers same-tenant pinned app installation. MCP preserves install_app(tenant, app_ref) and forwards only those fields to the existing installer; bundle resolution remains server-owned. The response includes both a structured decision_id and the established message-based decision marker for existing clients.

@@ -244,6 +244,10 @@ async fn requested_app_guide_denial_has_an_agent_decision() {
     let id = body["decision_id"]
         .as_str()
         .expect("requested guide denial must offer a decision");
+    assert!(
+        body["error"]["message"].as_str().unwrap().contains(id),
+        "existing MCP clients extract the decision ID from the error message"
+    );
     let decision = decisions.try_recv().expect("decision broadcast");
     assert_eq!(decision.id, id);
     assert_eq!(decision.tenant, "tenant-a");
@@ -253,4 +257,49 @@ async fn requested_app_guide_denial_has_an_agent_decision() {
     assert_eq!(decision.resource_id, "project-management");
     assert_eq!(decision.session_id.as_deref(), Some("catalog-session"));
     assert!(body.get("guide").is_none());
+}
+
+#[tokio::test]
+async fn requested_install_denial_offers_decision_only_in_credential_tenant() {
+    let state = PlatformState::new(None);
+    let mut decisions = state.server.pending_decision_tx.subscribe();
+    let app = tenant_api_router().with_state(state);
+    for target in ["other-tenant", "tenant-a"] {
+        let mut request = typed_request(
+            Method::POST,
+            "/genesis/apps/install",
+            serde_json::json!({
+                "tenant": target,
+                "app_ref": "owner/app@0123456789abcdef",
+                "registry_url": "https://example.invalid",
+                "registry_tenant": "default",
+            }),
+            "tenant-a",
+        );
+        request
+            .extensions_mut()
+            .insert(agent_context("tenant-a").with_session_id(Some("install-session".to_string())));
+        let response = app.clone().oneshot(request).await.expect("request");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let bytes = axum::body::to_bytes(response.into_body(), 1_000_000)
+            .await
+            .expect("body");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        if target == "other-tenant" {
+            assert!(body.get("decision_id").is_none());
+            assert!(decisions.try_recv().is_err());
+        } else {
+            let id = body["decision_id"]
+                .as_str()
+                .expect("same-tenant install must offer a decision");
+            let decision = decisions.try_recv().expect("decision broadcast");
+            assert_eq!(decision.id, id);
+            assert_eq!(decision.tenant, "tenant-a");
+            assert_eq!(decision.action, "install_app");
+            assert_eq!(decision.resource_type, "App");
+            assert_eq!(decision.resource_id, "owner/app@0123456789abcdef");
+            assert_eq!(decision.agent_id, "agent-1");
+            assert_eq!(decision.session_id.as_deref(), Some("install-session"));
+        }
+    }
 }

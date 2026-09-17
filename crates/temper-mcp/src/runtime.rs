@@ -106,7 +106,15 @@ impl RuntimeContext {
             http: reqwest::Client::new(),
             agent_id: config.agent_id.clone(),
             agent_type: config.agent_type.clone(),
-            session_id: config.session_id.clone(),
+            // An interactive MCP runtime needs a session even when the host did
+            // not provide one. This remains telemetry until the server validates
+            // a human-approved session grant; it is never a principal claim.
+            session_id: Some(
+                config
+                    .session_id
+                    .clone()
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            ),
             api_key: config
                 .api_key
                 .clone()

@@ -341,3 +341,27 @@ async fn finalize_trajectory_retries_retryable_ots_upload_failure() {
 
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn default_mcp_sessions_are_distinct_and_explicit_sessions_are_preserved() {
+    let mut config = crate::McpConfig {
+        temper_url: Some("http://127.0.0.1:1".into()),
+        temper_port: None,
+        api_key: Some("isolated-session-test".into()),
+        agent_id: None,
+        agent_type: None,
+        session_id: None,
+    };
+    let first = RuntimeContext::from_config(&config).unwrap();
+    let second = RuntimeContext::from_config(&config).unwrap();
+    assert!(first.session_id.as_deref().is_some_and(|id| !id.is_empty()));
+    assert_ne!(first.session_id, second.session_id);
+    config.session_id = Some("explicit-session".into());
+    assert_eq!(
+        RuntimeContext::from_config(&config)
+            .unwrap()
+            .session_id
+            .as_deref(),
+        Some("explicit-session")
+    );
+}

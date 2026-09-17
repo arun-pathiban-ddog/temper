@@ -66,6 +66,8 @@ impl DeniedResource {
                 },
             )
             .await;
+            body["error"]["message"] =
+                serde_json::json!(format!("{} (decision: {})", self.reason, decision.id));
             body["decision_id"] = serde_json::json!(decision.id);
         }
         (StatusCode::FORBIDDEN, Json(body))

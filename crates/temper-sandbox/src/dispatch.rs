@@ -622,11 +622,30 @@ async fn dispatch_apps(
             .await
         }
         "install_app" => {
-            let _ = args;
-            Err(
-                "local OS-app install is removed from the normal agent path; install pinned Genesis refs through App.Install or /api/genesis/apps/install"
-                    .to_string(),
+            if args.len() != 1 {
+                return Err(
+                    "install_app expects one pinned owner/app@hash reference after the tenant"
+                        .to_string(),
+                );
+            }
+            let app_ref = expect_string_arg(args, 0, "app_ref", method)?;
+            if !app_ref
+                .rsplit_once('@')
+                .is_some_and(|(name, pin)| !name.is_empty() && !pin.is_empty())
+            {
+                return Err("install_app requires a pinned owner/app@hash reference".to_string());
+            }
+            temper_request(
+                ctx.http,
+                ctx.base_url,
+                ctx.tenant,
+                &ctx.identity(),
+                ctx.api_key,
+                Method::POST,
+                "/api/genesis/apps/install",
+                Some(&serde_json::json!({"tenant": ctx.tenant, "app_ref": app_ref})),
             )
+            .await
         }
         _ => unreachable!("dispatch_apps called with non-app method"),
     }
@@ -886,3 +905,7 @@ mod host_op_gate_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "dispatch_test.rs"]
+mod tests;
