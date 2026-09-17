@@ -670,3 +670,15 @@ D30 caller review: Generic stream uploads also need to materialize their authori
 **Chose credential replacement because:** The existing credential boundary fails closed even if provisioning is interrupted. The operator remains available only for native setup recovery and human approvals. An unregistered requester receives authentication failures until explicit recovery completes; it never falls back to operator execution.
 
 **Where:** crates/temper-mcp/src/setup.rs; setup_test.rs; setup_server_test.rs; ADR-0177.
+
+## Record read decisions at the request boundary
+
+**Decision:** Preserve denied read metadata internally and record a decision only when that denial becomes the response to an explicit authenticated agent request.
+
+**Came up because:** Production DsfFlows reads and app-guide reads return 403 without a decision, so MCP cannot offer approval. Current main and the pending release both retain this behavior.
+
+**Options:** Grant broad read permissions; record every row authorization failure; record only denied requested operations using the existing native human decision path.
+
+**Chose the request boundary because:** It retains the authenticated request session without putting untrusted correlation headers into Cedar context. It also keeps hidden collection rows from becoming approval prompts or existence disclosures. No policy is widened by this change.
+
+**Where:** crates/temper-server/src/odata/authz.rs; crates/temper-server/src/odata/read.rs; crates/temper-platform/src/tenant_api/apps.rs.

@@ -1231,7 +1231,9 @@ pub async fn handle_odata_get(
     };
     let tenant = authenticated.tenant().clone();
     let security_ctx = authenticated.security_context().clone();
-    handle_odata_get_for_tenant(state, tenant, security_ctx, path, query_params).await
+    let response =
+        handle_odata_get_for_tenant(state.clone(), tenant, security_ctx, path, query_params).await;
+    crate::authz::resolve_requested_denial(&state, &authenticated, response).await
 }
 
 #[instrument(skip_all, fields(otel.name = "GET /odata"))]

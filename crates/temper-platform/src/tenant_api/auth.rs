@@ -46,8 +46,27 @@ pub(super) struct PlatformResourceAuthorization<'a> {
 pub(super) fn require_resource_authorization(
     state: &PlatformState,
     authenticated: &AuthenticatedRequestContext,
-    mut input: PlatformResourceAuthorization<'_>,
+    input: PlatformResourceAuthorization<'_>,
 ) -> Result<(), StatusCode> {
+    check_resource_authorization(state, authenticated, input).map_err(|_| StatusCode::FORBIDDEN)
+}
+
+pub(super) async fn require_requested_resource_authorization(
+    state: &PlatformState,
+    authenticated: &AuthenticatedRequestContext,
+    input: PlatformResourceAuthorization<'_>,
+) -> Result<(), (StatusCode, axum::Json<serde_json::Value>)> {
+    match check_resource_authorization(state, authenticated, input) {
+        Ok(()) => Ok(()),
+        Err(denial) => Err(denial.for_request(&state.server, authenticated).await),
+    }
+}
+
+fn check_resource_authorization(
+    state: &PlatformState,
+    authenticated: &AuthenticatedRequestContext,
+    mut input: PlatformResourceAuthorization<'_>,
+) -> Result<(), temper_server::authz::DeniedResource> {
     input.attrs.insert(
         "id".to_string(),
         serde_json::Value::String(input.resource_id.to_string()),
@@ -75,6 +94,12 @@ pub(super) fn require_resource_authorization(
                 resource_id = input.resource_id,
                 "platform management operation denied"
             );
-            StatusCode::FORBIDDEN
+            temper_server::authz::DeniedResource {
+                action: input.action.to_string(),
+                resource_type: input.resource_type.to_string(),
+                resource_id: input.resource_id.to_string(),
+                resource_attrs: input.attrs,
+                reason: denial.to_string(),
+            }
         })
 }

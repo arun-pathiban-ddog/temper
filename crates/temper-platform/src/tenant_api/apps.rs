@@ -5,8 +5,8 @@ use axum::response::IntoResponse;
 use temper_authz::AuthenticatedRequestContext;
 
 use super::auth::{
-    PlatformResourceAuthorization, require_authenticated, require_resource_authorization,
-    require_same_tenant,
+    PlatformResourceAuthorization, require_authenticated, require_requested_resource_authorization,
+    require_resource_authorization, require_same_tenant,
 };
 use super::authorization_error;
 use crate::state::PlatformState;
@@ -20,7 +20,7 @@ pub(crate) async fn list_os_apps(
         Ok(authenticated) => authenticated,
         Err(status) => return authorization_error(status),
     };
-    if let Err(status) = require_resource_authorization(
+    if let Err(denial) = require_requested_resource_authorization(
         &state,
         authenticated,
         PlatformResourceAuthorization {
@@ -29,8 +29,10 @@ pub(crate) async fn list_os_apps(
             resource_id: "all",
             attrs: std::collections::BTreeMap::new(),
         },
-    ) {
-        return authorization_error(status);
+    )
+    .await
+    {
+        return denial;
     }
     let apps = crate::os_apps::list_os_apps();
     (StatusCode::OK, Json(serde_json::json!({ "apps": apps })))
@@ -46,7 +48,7 @@ pub(crate) async fn get_os_app_guide(
         Ok(authenticated) => authenticated,
         Err(status) => return authorization_error(status),
     };
-    if let Err(status) = require_resource_authorization(
+    if let Err(denial) = require_requested_resource_authorization(
         &state,
         authenticated,
         PlatformResourceAuthorization {
@@ -55,8 +57,10 @@ pub(crate) async fn get_os_app_guide(
             resource_id: &name,
             attrs: std::collections::BTreeMap::new(),
         },
-    ) {
-        return authorization_error(status);
+    )
+    .await
+    {
+        return denial;
     }
     match crate::os_apps::get_app_guide(&name) {
         Some(guide) => (

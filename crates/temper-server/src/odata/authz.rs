@@ -141,14 +141,22 @@ pub(crate) fn authorize_read(
     state
         .authorize_with_context(security_ctx, action, entity_type, &attrs, tenant.as_str())
         .map_err(|denial| {
-            Box::new(
-                odata_error(
-                    StatusCode::FORBIDDEN,
-                    "AuthorizationDenied",
-                    &denial.to_string(),
-                )
-                .into_response(),
+            let mut response = odata_error(
+                StatusCode::FORBIDDEN,
+                "AuthorizationDenied",
+                &denial.to_string(),
             )
+            .into_response();
+            response
+                .extensions_mut()
+                .insert(crate::authz::DeniedResource {
+                    action: action.to_string(),
+                    resource_type: entity_type.to_string(),
+                    resource_id: entity_id.to_string(),
+                    resource_attrs: attrs,
+                    reason: denial.to_string(),
+                });
+            Box::new(response)
         })
 }
 
