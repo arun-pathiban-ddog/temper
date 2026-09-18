@@ -76,18 +76,28 @@ pub fn verify_symbolic(ioa_toml: &str, max_counter: usize) -> SmtResult {
 }
 
 fn approximation_notes(model: &TemperModel) -> Vec<String> {
+    let mut notes = Vec::new();
     let cross_entity_guard_count = model
         .transitions
         .iter()
         .filter(|transition| transition.guard.contains_cross_entity())
         .count();
-    if cross_entity_guard_count == 0 {
-        return Vec::new();
+    if cross_entity_guard_count > 0 {
+        notes.push(format!(
+            "{cross_entity_guard_count} transition(s) use abstract cross-entity guards; single-entity SMT excludes them from local induction and reachability"
+        ));
     }
-
-    vec![format!(
-        "{cross_entity_guard_count} transition(s) use abstract cross-entity guards; single-entity SMT excludes them from local induction and reachability"
-    )]
+    let system_one_guard_count = model
+        .transitions
+        .iter()
+        .filter(|transition| transition.guard.contains_system_one())
+        .count();
+    if system_one_guard_count > 0 {
+        notes.push(format!(
+            "{system_one_guard_count} transition(s) use System One judgments; scalar answer domains and repeated-field assertion consistency are checked, then satisfiable answers are abstract nondeterministic gates included in safety induction and reachability; correlations between distinct answer fields are overapproximated and model accuracy is not established"
+        ));
+    }
+    notes
 }
 
 fn concrete_transitions(model: &TemperModel) -> impl Iterator<Item = &ResolvedTransition> {
@@ -196,6 +206,7 @@ fn check_invariant_induction(model: &TemperModel, max_counter: usize) -> Vec<(St
                     // as a from_state.
                     inv.trigger_states.iter().all(|trigger| {
                         !concrete_transitions(model)
+                            .filter(|t| !t.guard.contains_system_one())
                             .any(|t| t.from_states.contains(trigger) || t.from_states.is_empty())
                     })
                 }
@@ -289,6 +300,7 @@ fn kind_inductive_smt(
         }
         InvariantKind::NoFurtherTransitions => trigger_states.iter().all(|trigger| {
             !concrete_transitions(model)
+                .filter(|t| !t.guard.contains_system_one())
                 .any(|t| t.from_states.contains(trigger) || t.from_states.is_empty())
         }),
         InvariantKind::Implication => true,
@@ -719,6 +731,15 @@ fn encode_guard(
             required_status.join("|"),
             forbidden_status.join("|")
         )),
+        ModelGuard::SystemOne(guard) => {
+            if guard.assertion_may_hold().unwrap_or(false) {
+                Bool::new_const(format!("system_one_guard:{}", guard.key()))
+            } else {
+                // Preserve answer-domain impossibility and contradictions;
+                // a free boolean must not enable a statically dead assertion.
+                Bool::from_bool(false)
+            }
+        }
         ModelGuard::And(guards) => {
             let formulas: Vec<Bool> = guards
                 .iter()
@@ -743,7 +764,7 @@ fn check_unreachable_states(model: &TemperModel) -> Vec<String> {
             continue;
         }
         for t in &model.transitions {
-            if t.guard.contains_cross_entity() {
+            if t.guard.contains_cross_entity() || !system_one_assertions_may_hold(&t.guard) {
                 continue;
             }
             let can_fire_from =
@@ -763,6 +784,15 @@ fn check_unreachable_states(model: &TemperModel) -> Vec<String> {
         .filter(|s| !reachable.contains(s.as_str()))
         .cloned()
         .collect()
+}
+
+/// Ignore local inputs while ruling out impossible System One assertions.
+fn system_one_assertions_may_hold(guard: &ModelGuard) -> bool {
+    match guard {
+        ModelGuard::SystemOne(judgment) => judgment.assertion_may_hold().unwrap_or(false),
+        ModelGuard::And(guards) => guards.iter().all(system_one_assertions_may_hold),
+        _ => true,
+    }
 }
 
 #[cfg(test)]
