@@ -73,6 +73,7 @@ enum Answer {
 enum Mutation {
     Bump(ActorRef<EntityMsg>),
     Reload(Arc<RwLock<TransitionTable>>),
+    RemoveGuards(Arc<RwLock<TransitionTable>>),
 }
 
 struct TestProvider {
@@ -129,6 +130,14 @@ impl SystemOneProvider for TestProvider {
                     "Is a human explicitly requested?",
                 ));
             }
+            Some(Mutation::RemoveGuards(table)) => {
+                let unguarded = SPEC
+                    .lines()
+                    .filter(|line| !line.starts_with("guard = "))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                *table.write().unwrap() = TransitionTable::from_ioa_source(&unguarded);
+            }
             None => {}
         }
         let value = match self.answer {
@@ -140,6 +149,12 @@ impl SystemOneProvider for TestProvider {
         Ok(json!({"model":"jev-sim", "answers":{"human":{"type":"noul", "noul":value}}}))
     }
 }
+
+#[path = "actor_tests/hot_swap_test.rs"]
+mod hot_swap;
+
+#[path = "actor_tests/occ_hot_swap_test.rs"]
+mod occ_hot_swap;
 
 fn server(sim: SimEventStore, provider: Arc<TestProvider>) -> ServerState {
     let mut registry = SpecRegistry::new();

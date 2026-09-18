@@ -196,7 +196,16 @@ impl ServerState {
         let params_digest = json_digest(params).map_err(DispatchError::Internal)?;
         let principal = canonical_principal_identity(agent_ctx).map_err(DispatchError::Internal)?;
         super::bind_attempt(
-            &store, tenant, table, state, action, params, &principal, attempt_id,
+            &store,
+            super::AttemptInput {
+                tenant,
+                table,
+                state,
+                action,
+                params,
+                principal: &principal,
+                attempt: attempt_id,
+            },
         )
         .await
         .map_err(DispatchError::Conflict)?;

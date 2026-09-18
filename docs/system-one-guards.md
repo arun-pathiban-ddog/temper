@@ -70,6 +70,10 @@ the attempted action's parameters. Objects and arrays recursively compose
 references and literals. Reference objects must contain only the `ref` key.
 Missing fields fail explicitly. Related entities are not read automatically,
 and context is never silently truncated.
+Resolved context is limited to 64 KiB of JSON, including escaping and container
+overhead. Each selected value is counted before it is cloned, so repeated
+references cannot allocate an oversized inference context. The complete outbound
+request has its own 64 KiB limit, including the model and questions.
 
 Entity bindings include the canonical `Id` and `Status`, declared counters,
 booleans, lists, and persisted data fields. Referenced entity fields stored as

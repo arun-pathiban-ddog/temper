@@ -631,13 +631,15 @@ impl crate::state::ServerState {
                     .map_err(DispatchError::Internal)?;
                 let reserved = crate::system_one::check_attempt(
                     &store,
-                    tenant,
-                    &table,
-                    &current.state,
-                    action,
-                    &params_for_retry,
-                    &principal,
-                    attempt,
+                    crate::system_one::AttemptInput {
+                        tenant,
+                        table: &table,
+                        state: &current.state,
+                        action,
+                        params: &params_for_retry,
+                        principal: &principal,
+                        attempt,
+                    },
                     completed,
                 )
                 .await

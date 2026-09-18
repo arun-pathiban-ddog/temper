@@ -112,6 +112,47 @@ fn binding_typos_and_ambiguous_objects_reject() {
 }
 
 #[test]
+fn reference_fanout_cannot_exceed_the_resolved_context_byte_budget() {
+    let mut guard = noul("answers.human_requested.noul >= 0.8");
+    guard.state = Value::Array(vec![json!({"ref":"entity.Messages"}); 64]);
+    let entity = json!({"Messages":"a".repeat(1_024)});
+    guard.validate().unwrap();
+    assert!(
+        guard.resolve_state(&entity, &json!({})).is_err(),
+        "reference fanout expanded past the 64 KiB context budget"
+    );
+    guard.state = json!({"ref":"entity.Messages"});
+    assert_eq!(
+        guard.resolve_state(&entity, &json!({})).unwrap(),
+        entity["Messages"]
+    );
+}
+
+#[test]
+fn resolved_context_budget_counts_json_escaping_and_container_overhead() {
+    let mut guard = noul("answers.human_requested.noul >= 0.8");
+    let byte_budget = 64 * 1_024;
+    let exact = json!({"Messages":"a".repeat(byte_budget - 2)});
+    assert_eq!(
+        guard.resolve_state(&exact, &json!({})).unwrap(),
+        exact["Messages"]
+    );
+    let oversized = json!({"Messages":"a".repeat(byte_budget - 1)});
+    assert!(guard.resolve_state(&oversized, &json!({})).is_err());
+    let escaped = json!({"Messages":"\\".repeat(byte_budget / 2)});
+    assert!(guard.resolve_state(&escaped, &json!({})).is_err());
+    guard.state = json!([{"ref":"params.Message"}, {"ref":"params.Message"}]);
+    assert!(
+        guard
+            .resolve_state(
+                &json!({}),
+                &json!({"Message":"a".repeat(byte_budget / 2 - 2)})
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn answer_reference_types_are_validated_at_spec_load() {
     for assertion in [
         "answers.missing.noul >= 0.8",

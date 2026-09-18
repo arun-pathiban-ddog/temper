@@ -22,6 +22,25 @@ struct AttemptBinding {
     expected_state: String,
 }
 
+/// Inputs that bind an action attempt to its caller, spec, and entity snapshot.
+#[derive(Clone, Copy)]
+pub(crate) struct AttemptInput<'a> {
+    /// Tenant that owns the attempt journal.
+    pub tenant: &'a TenantId,
+    /// Current spec used to validate the attempt.
+    pub table: &'a TransitionTable,
+    /// Entity snapshot against which the action runs.
+    pub state: &'a EntityState,
+    /// Action requested by the caller.
+    pub action: &'a str,
+    /// Parameters supplied for this action attempt.
+    pub params: &'a Value,
+    /// Stable identity of the authenticated caller.
+    pub principal: &'a str,
+    /// Idempotency key that identifies this action attempt.
+    pub attempt: &'a str,
+}
+
 fn attempt_id(tenant: &TenantId, state: &EntityState, attempt: &str) -> Result<String, String> {
     let identity = serde_json::json!({"entity_type":state.entity_type,"entity_id":state.entity_id,"attempt":attempt});
     Ok(format!(
@@ -76,18 +95,20 @@ fn check(saved: &AttemptBinding, current: &AttemptBinding, completed: bool) -> R
 }
 
 /// Validate any prior guarded attempt, including when a hot reload removed guards.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn check_attempt(
     store: &BoxedEventStore,
-    tenant: &TenantId,
-    table: &TransitionTable,
-    state: &EntityState,
-    action: &str,
-    params: &Value,
-    principal: &str,
-    attempt: &str,
+    input: AttemptInput<'_>,
     completed: bool,
 ) -> Result<bool, String> {
+    let AttemptInput {
+        tenant,
+        table,
+        state,
+        action,
+        params,
+        principal,
+        attempt,
+    } = input;
     let id = attempt_id(tenant, state, attempt)?;
     let Some(saved) = read_attempt(store, &id).await? else {
         return Ok(false);
@@ -101,24 +122,22 @@ pub(crate) async fn check_attempt(
 }
 
 /// Reserve an action attempt before inference; competing reservations must agree.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn bind_attempt(
     store: &BoxedEventStore,
-    tenant: &TenantId,
-    table: &TransitionTable,
-    state: &EntityState,
-    action: &str,
-    params: &Value,
-    principal: &str,
-    attempt: &str,
+    input: AttemptInput<'_>,
 ) -> Result<(), String> {
-    if check_attempt(
-        store, tenant, table, state, action, params, principal, attempt, false,
-    )
-    .await?
-    {
+    if check_attempt(store, input, false).await? {
         return Ok(());
     }
+    let AttemptInput {
+        tenant,
+        table,
+        state,
+        action,
+        params,
+        principal,
+        attempt,
+    } = input;
     let id = attempt_id(tenant, state, attempt)?;
     let current = binding(table, state, action, params, principal)?;
     let envelope = PersistenceEnvelope {

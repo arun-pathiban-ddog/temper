@@ -88,9 +88,9 @@ fn validate_bindings(
         for schema in &csdl.schemas {
             for csdl_action in &schema.actions {
                 if csdl_action.name != action.name
-                    || !csdl_action
+                    || csdl_action
                         .binding_type()
-                        .is_some_and(|binding| binding.rsplit('.').next() == Some(entity_type))
+                        .is_none_or(|binding| binding.rsplit('.').next() != Some(entity_type))
                 {
                     continue;
                 }

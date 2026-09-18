@@ -1183,7 +1183,9 @@ impl Actor for EntityActor {
                     return Ok(());
                 }
 
-                if !crate::system_one::collect_guards(&table, &name).is_empty() {
+                if system_one_evidence.is_some()
+                    || !crate::system_one::collect_guards(&table, &name).is_empty()
+                {
                     let validation = system_one_evidence
                         .as_ref()
                         .ok_or_else(|| "system_one evaluation evidence is missing".to_string())
@@ -1430,17 +1432,22 @@ impl Actor for EntityActor {
                                     state_before = state.clone();
                                     event_count_before = state.total_event_count;
 
-                                    if let Some(evidence) = &system_one_evidence
-                                        && let Err(error) = evidence.validate(
-                                            &table,
+                                    if let Some(evidence) = &system_one_evidence {
+                                        // Catch-up awaited storage; a live spec
+                                        // swap can invalidate evidence even
+                                        // when the entity journal did not move.
+                                        let current_table =
+                                            self.table.read().expect("table lock poisoned").clone();
+                                        if let Err(error) = evidence.validate(
+                                            &current_table,
                                             state,
                                             &name,
                                             &params,
                                             idempotency_key.as_deref(),
-                                        )
-                                    {
-                                        retry_final = Some((crate::runtime_metrics::ConcurrencyRetryOutcome::ActionIllegal, Some(error)));
-                                        break;
+                                        ) {
+                                            retry_final = Some((crate::runtime_metrics::ConcurrencyRetryOutcome::ActionIllegal, Some(error)));
+                                            break;
+                                        }
                                     }
 
                                     // Re-evaluate the action against the caught-up

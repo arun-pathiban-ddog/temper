@@ -345,13 +345,15 @@ async fn attempt_manifest_binds_completed_retries_and_structural_spec_changes() 
     let state = initial(&table);
     bind_attempt(
         &store,
-        &tenant,
-        &table,
-        &state,
-        "Escalate",
-        &json!({}),
-        "principal-a",
-        "attempt",
+        AttemptInput {
+            tenant: &tenant,
+            table: &table,
+            state: &state,
+            action: "Escalate",
+            params: &json!({}),
+            principal: "principal-a",
+            attempt: "attempt",
+        },
     )
     .await
     .unwrap();
@@ -361,13 +363,15 @@ async fn attempt_manifest_binds_completed_retries_and_structural_spec_changes() 
     assert!(
         check_attempt(
             &store,
-            &tenant,
-            &table,
-            &completed,
-            "Escalate",
-            &json!({}),
-            "principal-a",
-            "attempt",
+            AttemptInput {
+                tenant: &tenant,
+                table: &table,
+                state: &completed,
+                action: "Escalate",
+                params: &json!({}),
+                principal: "principal-a",
+                attempt: "attempt",
+            },
             true
         )
         .await
@@ -376,13 +380,15 @@ async fn attempt_manifest_binds_completed_retries_and_structural_spec_changes() 
     assert!(
         check_attempt(
             &store,
-            &tenant,
-            &table,
-            &completed,
-            "Escalate",
-            &json!({"changed":true}),
-            "principal-a",
-            "attempt",
+            AttemptInput {
+                tenant: &tenant,
+                table: &table,
+                state: &completed,
+                action: "Escalate",
+                params: &json!({"changed":true}),
+                principal: "principal-a",
+                attempt: "attempt",
+            },
             true
         )
         .await
@@ -391,13 +397,15 @@ async fn attempt_manifest_binds_completed_retries_and_structural_spec_changes() 
     assert!(
         check_attempt(
             &store,
-            &tenant,
-            &table,
-            &completed,
-            "Escalate",
-            &json!({}),
-            "principal-b",
-            "attempt",
+            AttemptInput {
+                tenant: &tenant,
+                table: &table,
+                state: &completed,
+                action: "Escalate",
+                params: &json!({}),
+                principal: "principal-b",
+                attempt: "attempt",
+            },
             true
         )
         .await
@@ -406,13 +414,15 @@ async fn attempt_manifest_binds_completed_retries_and_structural_spec_changes() 
     assert!(
         check_attempt(
             &store,
-            &tenant,
-            &table,
-            &completed,
-            "Other",
-            &json!({}),
-            "principal-a",
-            "attempt",
+            AttemptInput {
+                tenant: &tenant,
+                table: &table,
+                state: &completed,
+                action: "Other",
+                params: &json!({}),
+                principal: "principal-a",
+                attempt: "attempt",
+            },
             true
         )
         .await
@@ -421,13 +431,15 @@ async fn attempt_manifest_binds_completed_retries_and_structural_spec_changes() 
     assert!(
         check_attempt(
             &store,
-            &tenant,
-            &table,
-            &completed,
-            "Escalate",
-            &json!({}),
-            "principal-a",
-            "attempt",
+            AttemptInput {
+                tenant: &tenant,
+                table: &table,
+                state: &completed,
+                action: "Escalate",
+                params: &json!({}),
+                principal: "principal-a",
+                attempt: "attempt",
+            },
             false
         )
         .await
@@ -442,13 +454,15 @@ async fn attempt_manifest_binds_completed_retries_and_structural_spec_changes() 
     assert!(
         check_attempt(
             &store,
-            &tenant,
-            &removed,
-            &state,
-            "Escalate",
-            &json!({}),
-            "principal-a",
-            "attempt",
+            AttemptInput {
+                tenant: &tenant,
+                table: &removed,
+                state: &state,
+                action: "Escalate",
+                params: &json!({}),
+                principal: "principal-a",
+                attempt: "attempt",
+            },
             false
         )
         .await
@@ -457,13 +471,15 @@ async fn attempt_manifest_binds_completed_retries_and_structural_spec_changes() 
     assert!(
         check_attempt(
             &store,
-            &tenant,
-            &removed,
-            &completed,
-            "Escalate",
-            &json!({}),
-            "principal-a",
-            "attempt",
+            AttemptInput {
+                tenant: &tenant,
+                table: &removed,
+                state: &completed,
+                action: "Escalate",
+                params: &json!({}),
+                principal: "principal-a",
+                attempt: "attempt",
+            },
             true
         )
         .await

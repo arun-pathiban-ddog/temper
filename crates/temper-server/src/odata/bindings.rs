@@ -279,13 +279,15 @@ pub(super) async fn dispatch_bound_action(
                         .map_err(DispatchError::Internal)?;
                 let reserved = crate::system_one::check_attempt(
                     &store,
-                    tenant,
-                    &table,
-                    &current_state.state,
-                    action,
-                    &body_json,
-                    &principal,
-                    idem_key,
+                    crate::system_one::AttemptInput {
+                        tenant,
+                        table: &table,
+                        state: &current_state.state,
+                        action,
+                        params: &body_json,
+                        principal: &principal,
+                        attempt: idem_key,
+                    },
                     true,
                 )
                 .await
