@@ -702,10 +702,20 @@ async fn a_forwarding_route_forwards_only_the_protocol_credential_formats() {
         "default:Agent:operator:false",
         "a credential the kernel resolved is kernel authority and is stripped"
     );
+    let unresolved_bearer = app(state)
+        .oneshot(
+            HttpRequest::get("/repo.git/info/refs")
+                .header("authorization", "Bearer a-credential-for-some-other-tenant")
+                .header("x-tenant-id", "default")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(
-        guest_saw_credential(&state, "Bearer a-credential-for-some-other-tenant").await,
-        "default:Customer:anonymous:false",
-        "an UNRESOLVED Bearer is withheld too: it may be valid in a tenant this request did not name"
+        unresolved_bearer.status(),
+        StatusCode::UNAUTHORIZED,
+        "an unresolved kernel Bearer must not downgrade to a guest-anonymous request"
     );
 }
 
