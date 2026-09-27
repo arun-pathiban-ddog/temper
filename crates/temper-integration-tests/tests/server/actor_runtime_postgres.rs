@@ -23,7 +23,7 @@ macro_rules! postgres_proofs {
     };
 }
 
-/// Share exact-runtime proof registration with the later actor-integration group.
+/// Share exact-runtime proof registration with the later actor and agent groups.
 pub(super) use postgres_proofs;
 
 postgres_proofs! {
@@ -32,7 +32,7 @@ postgres_proofs! {
     #[tokio::test]
     rejection_discards_handler_mutations_and_tells_but_transient_failure_retries => temper_actor_runtime::pg::strict_tests::rejection_discards_handler_mutations_and_tells_but_transient_failure_retries,
     #[tokio::test]
-    routed_emit_and_trigger_project_only_declared_inputs_then_enforce_constraints => temper_actor_runtime::pg::strict_tests::routed_emit_and_trigger_project_only_declared_inputs_then_enforce_constraints,
+    routed_trigger_projects_only_declared_inputs_then_enforces_constraints => temper_actor_runtime::pg::strict_tests::routed_trigger_projects_only_declared_inputs_then_enforces_constraints,
     #[tokio::test]
     fresh_identity_is_persisted_before_any_action => temper_actor_runtime::pg::strict_tests::fresh_identity_is_persisted_before_any_action,
     #[tokio::test]
@@ -53,25 +53,50 @@ postgres_proofs! {
 pub(super) fn assert_inventory_matches_source_files(manifest_dir: &Path) {
     const REGISTRATION_PREFIX: &str = "#[cfg_attr(not(feature=\"test-shared-pg-proofs\"),";
     let mut source_proofs = BTreeMap::new();
-    for (source_file, module) in [
-        ("src/pg_strict_tests.rs", "pg::strict_tests"),
+    for (owner, crate_name, source_file, module) in [
         (
+            "actor-runtime",
+            "temper_actor_runtime",
+            "src/pg_strict_tests.rs",
+            "pg::strict_tests",
+        ),
+        (
+            "actor-runtime",
+            "temper_actor_runtime",
             "src/pg_creation_tests.rs",
             "pg::strict_tests::creation_tests",
         ),
-        ("src/test_utils_tests.rs", "test_utils::tests"),
-        ("tests/integration.rs", "integration_proofs"),
         (
+            "actor-runtime",
+            "temper_actor_runtime",
+            "src/test_utils_tests.rs",
+            "test_utils::tests",
+        ),
+        (
+            "actor-runtime",
+            "temper_actor_runtime",
+            "tests/integration.rs",
+            "integration_proofs",
+        ),
+        (
+            "actor-runtime",
+            "temper_actor_runtime",
             "tests/integration/creation_race.rs",
             "integration_proofs::creation_race",
+        ),
+        (
+            "agents",
+            "temper_agents",
+            "tests/agent_chain.rs",
+            "agent_chain_proofs",
         ),
     ] {
         let source = std::fs::read_to_string(
             manifest_dir
-                .join("../temper-actor-runtime")
+                .join(format!("../temper-{owner}"))
                 .join(source_file),
         )
-        .expect("actor-runtime PostgreSQL proof source should exist");
+        .expect("PostgreSQL proof source should exist");
         let lines: Vec<_> = source.lines().map(str::trim).collect();
         let mut registration_lines = BTreeSet::new();
         for (index, line) in lines.iter().enumerate() {
@@ -95,11 +120,11 @@ pub(super) fn assert_inventory_matches_source_files(manifest_dir: &Path) {
                 assert!(
                     source_proofs
                         .insert(
-                            format!("temper_actor_runtime::{module}::{name}"),
+                            format!("{crate_name}::{module}::{name}"),
                             runtime.to_owned()
                         )
                         .is_none(),
-                    "duplicate actor-runtime PostgreSQL proof {module}::{name}"
+                    "duplicate {owner} PostgreSQL proof {module}::{name}"
                 );
             }
         }
@@ -118,6 +143,7 @@ pub(super) fn assert_inventory_matches_source_files(manifest_dir: &Path) {
     for (name, path, runtime) in REGISTERED_PROOFS
         .iter()
         .chain(crate::pg_actor_integration::REGISTERED_PROOFS)
+        .chain(crate::pg_agent_chain::REGISTERED_PROOFS)
     {
         let path = compact(path);
         assert_eq!(
@@ -134,13 +160,10 @@ pub(super) fn assert_inventory_matches_source_files(manifest_dir: &Path) {
             "each PostgreSQL proof must run exactly once"
         );
     }
-    assert!(
-        !source_proofs.is_empty(),
-        "actor-runtime PostgreSQL proofs must exist"
-    );
+    assert!(!source_proofs.is_empty(), "PostgreSQL proofs must exist");
     assert_eq!(
         registered_proofs, source_proofs,
-        "register every actor-runtime PostgreSQL proof exactly once with its original Tokio runtime"
+        "register every PostgreSQL proof exactly once with its original Tokio runtime"
     );
 }
 

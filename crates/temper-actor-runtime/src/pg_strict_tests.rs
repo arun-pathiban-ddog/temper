@@ -2,7 +2,6 @@
 use super::*;
 use crate::spec_actor::{SpecActorState, SpecDrivenActor, SpecMessage};
 use prost::Message as _;
-use std::collections::HashMap;
 
 async fn pool() -> (
     Pool,
@@ -65,7 +64,7 @@ field = "desired"
 #[cfg_attr(not(feature = "test-shared-pg-proofs"), tokio::test)]
 pub async fn rejected_input_is_consumed_and_the_next_valid_message_runs() {
     let (pool, _container) = pool().await;
-    let actor = SpecDrivenActor::from_ioa(SPEC, HashMap::new()).unwrap();
+    let actor = SpecDrivenActor::from_ioa(SPEC).unwrap();
     let handle = setup(&pool, &actor).await;
     let mailbox = Arc::new(PgMailbox::new(pool.clone(), PgMailboxConfig::default()));
     let activator = PgActorActivator::new(pool.clone(), mailbox.clone(), Default::default());
@@ -201,16 +200,12 @@ pub async fn rejection_discards_handler_mutations_and_tells_but_transient_failur
     }
 }
 
-/// Prove routed effects preserve declared inputs and enforce target constraints.
+/// Prove routed triggers preserve declared inputs and enforce target constraints.
 #[cfg_attr(not(feature = "test-shared-pg-proofs"), tokio::test)]
-pub async fn routed_emit_and_trigger_project_only_declared_inputs_then_enforce_constraints() {
+pub async fn routed_trigger_projects_only_declared_inputs_then_enforces_constraints() {
     let (pool, _container) = pool().await;
-    for effect in [
-        r#"{type = "emit", event = "Forward"}"#,
-        r#"{type = "trigger", name = "Forward"}"#,
-    ] {
-        let source_spec = format!(
-            r#"
+    {
+        let source_spec = r#"
 [automaton]
 name = "Source"
 states = ["Ready"]
@@ -225,16 +220,15 @@ name = "Forward"
 kind = "input"
 from = ["Ready"]
 params = ["desired", "expected_desired"]
-effect = [{effect}]
-"#
-        );
-        let source = SpecDrivenActor::from_ioa(
-            &source_spec,
-            HashMap::from([("Forward".into(), ("Sink".into(), "Replace".into()))]),
-        )
-        .unwrap();
-        let sink =
-            SpecDrivenActor::from_ioa(&SPEC.replace("Strict", "Sink"), HashMap::new()).unwrap();
+[[action.triggers]]
+name = "forward_to_sink"
+kind = "entity"
+target_entity = "Sink"
+target_action = "Replace"
+resolve_target = { type = "same_id" }
+"#;
+        let source = SpecDrivenActor::from_ioa(source_spec).unwrap();
+        let sink = SpecDrivenActor::from_ioa(&SPEC.replace("Strict", "Sink")).unwrap();
         let system = crate::ActorSystem::new(pool.clone(), crate::SchedulerConfig::default());
         system.register(Arc::new(source)).await.unwrap();
         system.register(Arc::new(sink)).await.unwrap();
@@ -326,9 +320,7 @@ pub async fn fresh_identity_is_persisted_before_any_action() {
     let spec = SPEC.replace("field = \"desired\"", "field = \"Id\"");
     let system = crate::ActorSystem::new(pool.clone(), crate::SchedulerConfig::default());
     system
-        .register(Arc::new(
-            SpecDrivenActor::from_ioa(&spec, HashMap::new()).unwrap(),
-        ))
+        .register(Arc::new(SpecDrivenActor::from_ioa(&spec).unwrap()))
         .await
         .unwrap();
     for variant in 0..3 {
@@ -392,7 +384,7 @@ pub async fn activation_preserves_recovered_bytes_and_initializes_only_absent_ac
         } else {
             SPEC.replace("field = \"desired\"", "field = \"Id\"")
         };
-        let actor = SpecDrivenActor::from_ioa(&spec, HashMap::new()).unwrap();
+        let actor = SpecDrivenActor::from_ioa(&spec).unwrap();
         let handle = ActorHandle::new(format!("activation-{}", Uuid::new_v4()), "Strict");
         if recovered_empty {
             pool.get()

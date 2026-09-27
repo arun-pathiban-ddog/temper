@@ -116,6 +116,17 @@ Do not explicitly enable this layout feature without also running the integratio
 package. The existing inventory regression checks complete, unique registration
 and matching Tokio runtime configurations.
 
+The same server harness also runs the agents crate's three original PostgreSQL
+chain proofs under `pg_agent_chain::`, preserving every poll, sleep, scheduler
+restart and assertion. The separate non-default
+`temper-agents/test-shared-pg-proofs` feature is likewise enabled only by the
+integration package's dev-dependency. It exports the unchanged owner-relative
+source and suppresses duplicate registrations; standalone
+`cargo test -p temper-agents --test agent_chain` retains all three original names.
+The existing inventory regression covers all nineteen PostgreSQL proof wrappers
+and their exact Tokio runtime configurations. Normal production features do not
+include either test-harness bridge.
+
 The pinned nightly compiler uses sixteen frontend workers (`-Zthreads=16`).
 Cargo's jobserver coordinates them with other compiler jobs; this is not sixteen
 additional unbounded threads per crate. The macOS ARM target retains its existing

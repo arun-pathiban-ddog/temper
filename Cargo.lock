@@ -7264,6 +7264,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "temper-actor-runtime",
+ "temper-agents",
  "temper-authz",
  "temper-codegen",
  "temper-evolution",

@@ -197,7 +197,7 @@ initial = "0"
 name = "GoB"
 from = ["A"]
 to = "B"
-effect = "decrement count"
+effect = ["count -= 1"]
 
 [[invariant]]
 name = "BNeedsCount"

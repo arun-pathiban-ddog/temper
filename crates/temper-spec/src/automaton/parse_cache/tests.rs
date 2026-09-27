@@ -2,7 +2,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
-use crate::automaton::{Effect, LivenessViolation};
+use crate::automaton::{LivenessViolation, ResolvedEffect, dispatch_effects};
 
 const PREPARED: &str = r#"
 [automaton]
@@ -139,13 +139,16 @@ fn hits_preserve_complete_prepared_asts_and_return_independent_owned_clones() {
     let prepared = parse(PREPARED, LivenessEnforcement::Enforce, &cache).unwrap();
     assert_eq!(prepared.actions[1].from, ["Ready"]);
     assert_eq!(prepared.integrations.len(), 1);
-    assert_eq!(prepared.integrations[0].name, "__trigger__:Complete:notify");
+    assert_eq!(prepared.integrations[0].name, "notify");
     assert_eq!(
-        prepared.actions[0]
-            .effect
+        prepared.integrations[0].trigger,
+        "__trigger__:Complete:notify"
+    );
+    assert_eq!(
+        dispatch_effects(&prepared.actions[0])
             .iter()
             .filter(|effect| matches!(
-                effect, Effect::Trigger { name } if name == "__trigger__:Complete:notify"
+                effect, ResolvedEffect::Dispatch(name) if name == "__trigger__:Complete:notify"
             ))
             .count(),
         1,

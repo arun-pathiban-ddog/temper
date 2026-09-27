@@ -41,3 +41,11 @@ inventory guard checks exact coverage, registration exclusivity, and each Tokio
 runtime configuration, including the concurrent-creation proof's three-worker
 multi-thread runtime. Fixtures, connection pools, and the explicit external
 database opt-in remain unchanged.
+
+The agents crate's three original `agent_chain` PostgreSQL proofs also run in the
+same server executable through `pg_agent_chain::`. Its separate non-default
+`temper-agents/test-shared-pg-proofs` feature is enabled only by this package's
+dev-dependency, compiling the unchanged bodies in their owner. Standalone
+`cargo test -p temper-agents --test agent_chain` retains all three original test
+names. Polls, sleeps, scheduler restarts, fixtures and assertions are unchanged;
+the existing inventory regression checks their registrations and Tokio attributes.

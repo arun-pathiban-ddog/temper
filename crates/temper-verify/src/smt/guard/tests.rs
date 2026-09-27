@@ -118,6 +118,7 @@ fn transition(name: &str, from: &[&str], guard: &str) -> ResolvedTransition {
         to_state: None,
         guard: parse(guard).unwrap(),
         effects: Vec::new(),
+        params: BTreeMap::new(),
     }
 }
 

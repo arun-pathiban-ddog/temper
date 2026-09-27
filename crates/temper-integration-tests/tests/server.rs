@@ -10,6 +10,8 @@ mod shared_common;
 mod actor_runtime_postgres;
 #[path = "server/pg_actor_integration.rs"]
 mod pg_actor_integration;
+#[path = "server/pg_agent_chain.rs"]
+mod pg_agent_chain;
 
 // Preserve the original per-suite helper test names and executions without
 // recompiling the helper implementations in each suite or test executable.
