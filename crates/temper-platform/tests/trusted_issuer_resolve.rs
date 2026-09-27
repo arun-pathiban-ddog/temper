@@ -65,6 +65,10 @@ fn contributor_claims() -> serde_json::Value {
 }
 
 async fn state_with_issuer(sk: &SigningKey) -> PlatformState {
+    state_with_issuer_namespace(sk, "").await
+}
+
+async fn state_with_issuer_namespace(sk: &SigningKey, namespace: &str) -> PlatformState {
     let state = PlatformState::new(None);
     let cache = BTreeMap::new();
     bootstrap_system_tenant(&state, &cache);
@@ -83,6 +87,7 @@ async fn state_with_issuer(sk: &SigningKey) -> PlatformState {
                 "issuer": ISSUER,
                 "jwks_json": jwks_json(sk, "k1"),
                 "audience": AUD,
+                "principal_namespace": namespace,
                 "algorithms": "ES256",
                 "description": "e2e issuer",
                 "created_by": "e2e",
@@ -92,6 +97,56 @@ async fn state_with_issuer(sk: &SigningKey) -> PlatformState {
         .await
         .expect("register issuer");
     state
+}
+
+#[tokio::test]
+async fn issuer_can_assert_only_its_registered_principal_namespace() {
+    let sk = SigningKey::from_slice(&[7u8; 32]).unwrap();
+    let state = state_with_issuer_namespace(&sk, "Acme").await;
+    let tenant = TenantId::new("default");
+    let resolver = IdentityResolver::new();
+
+    let mut claims = serde_json::json!({
+        "iss": ISSUER, "aud": AUD, "sub": "service-account-1",
+        "principal_type": "Acme::ServiceAccount",
+        "nbf": 0, "exp": 4_102_444_800i64,
+    });
+    let token = mint(&sk, header(), claims.clone());
+    let identity = resolver
+        .resolve(&state.server, &tenant, &token)
+        .await
+        .expect("registered namespace must resolve");
+    assert_eq!(
+        identity.principal_type.as_deref(),
+        Some("Acme::ServiceAccount")
+    );
+    assert_eq!(
+        identity.agent_instance_id,
+        format!("{}:{ISSUER}:service-account-1", ISSUER.len())
+    );
+
+    claims["principal_type"] = serde_json::json!("Other::ServiceAccount");
+    assert!(
+        resolver
+            .resolve(&state.server, &tenant, &mint(&sk, header(), claims.clone()))
+            .await
+            .is_none()
+    );
+    claims["principal_type"] = serde_json::json!("System");
+    assert!(
+        resolver
+            .resolve(&state.server, &tenant, &mint(&sk, header(), claims))
+            .await
+            .is_none()
+    );
+
+    let legacy_state = state_with_issuer(&sk).await;
+    assert!(
+        resolver
+            .resolve(&legacy_state.server, &tenant, &token)
+            .await
+            .is_none()
+    );
 }
 
 #[tokio::test]
