@@ -175,7 +175,18 @@ pub enum ActionParam {
         name: String,
         #[serde(rename = "type", default = "default_param_type")]
         param_type: String,
+        /// Trusted runtime source. A caller cannot supply this parameter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<ParameterSource>,
     },
+}
+
+/// Authenticated runtime values available to declared action parameters.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ParameterSource {
+    /// The authenticated human subject when acting for one, otherwise principal ID.
+    AuthenticatedSubject,
 }
 
 fn default_param_type() -> String {
@@ -187,6 +198,13 @@ impl ActionParam {
         match self {
             Self::Named(n) => n,
             Self::Typed { name, .. } => name,
+        }
+    }
+    /// Runtime source for this parameter, if it is not client supplied.
+    pub fn source(&self) -> Option<ParameterSource> {
+        match self {
+            Self::Named(_) => None,
+            Self::Typed { source, .. } => *source,
         }
     }
     pub fn param_type(&self) -> &str {
